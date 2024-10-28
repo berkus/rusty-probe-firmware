@@ -17,7 +17,16 @@ DEFMT_LOG=off cargo build --release --bin app
 elf2uf2-rs target/thumbv6m-none-eabi/release/app app
 ```
 
-Start the RP2040 in bootloader mode and drop the `app.uf2` file to it, done! 
+If you have [just](https://github.com/casey/just) installed you can replace all of the above with
+
+```console
+# Install elf2uf2-rs and flip-link
+# Build the ELF without logging
+# Generate .uf2 file
+just
+```
+
+Start the RP2040 in bootloader mode and drop the `app.uf2` file to it, done!
 
 ## Running with `defmt` logs without debugger
 
@@ -45,4 +54,3 @@ You may have to change `XTASK_SERIAL`, and on non-x86 linux platforms, you must 
 - [ ] Add support for JTAG (only SWD works right now)
 - [ ] Add support for SWO
 - [ ] Add support for VCP (it enumerates now, but ignores all data)
-
