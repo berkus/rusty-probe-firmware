@@ -151,6 +151,9 @@ impl Context {
     }
 }
 
+// DAP transaction stalled (WAIT) - slowing down
+// ^ auto slowdown
+
 impl swj::Dependencies<Swd, Jtag> for Context {
     fn process_swj_pins(&mut self, output: swj::Pins, mask: swj::Pins, wait_us: u32) -> swj::Pins {
         if mask.contains(swj::Pins::SWCLK) {
