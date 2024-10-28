@@ -1,5 +1,5 @@
 use crate::{
-    setup::{DirSwclkPin, DirSwdioPin, ResetPin, SwclkPin, SwdioPin},
+    setup::{DirSwclkPin, DirSwdioPin, ResetPin, SwclkPin, SwdioPin, TdiPin, TdoSwoPin},
     systick_delay::Delay,
 };
 use dap_rs::{swj::Dependencies, *};
@@ -19,19 +19,19 @@ pub struct Context {
     delay: &'static Delay,
     swdio_tms: SwdioPin, // Shared by SWD and JTAG
     swclk_tck: SwclkPin, // Shared by SWD and JTAG
-    tdo: DynPin,
-    tdi: DynPin,
+    tdo: TdoSwoPin,
+    tdi: TdiPin,
     nreset: ResetPin, // Shared by SWD and JTAG
     dir_swdio: DirSwdioPin,
     dir_swclk: DirSwclkPin,
 }
 
 struct JtagPins {
-    tms: DynPin, // Shared by SWDIO
-    tck: DynPin, // Shared by SWCLK
-    tdo: DynPin,
-    tdi: DynPin,
-    nreset: DynPin,
+    tms: SwdioPin, // Shared by SWDIO
+    tck: SwclkPin, // Shared by SWCLK
+    tdo: TdoSwoPin,
+    tdi: TdiPin,
+    nreset: ResetPin,
 }
 
 impl From<Context> for JtagPins {
@@ -47,11 +47,11 @@ impl From<Context> for JtagPins {
 }
 
 struct SwdPins {
-    swdio: DynPin, // Shared by TMS
-    swclk: DynPin, // Shared by TCK
-    nreset: DynPin,
-    dir_swdio: DynPin,
-    dir_swclk: DynPin,
+    swdio: SwdioPin, // Shared by TMS
+    swclk: SwclkPin, // Shared by TCK
+    nreset: ResetPin,
+    dir_swdio: DirSwdioPin,
+    dir_swclk: DirSwclkPin,
 }
 
 impl From<Context> for SwdPins {
@@ -119,8 +119,8 @@ impl Context {
     fn from_pins(
         swdio: SwdioPin,
         swclk: SwclkPin,
-        tdi: DynPin,
-        tdo: DynPin,
+        tdi: TdiPin,
+        tdo: TdoSwoPin,
         nreset: ResetPin,
         mut dir_swdio: DirSwdioPin,
         mut dir_swclk: DirSwclkPin,
@@ -858,8 +858,8 @@ pub fn create_dap(
     version_string: &'static str,
     swdio: SwdioPin,
     swclk: SwclkPin,
-    tdi: DynPin,
-    tdo: DynPin,
+    tdi: TdiPin,
+    tdo: TdoSwoPin,
     nreset: ResetPin,
     dir_swdio: DirSwdioPin,
     dir_swclk: DirSwclkPin,
