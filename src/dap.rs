@@ -9,17 +9,61 @@ use embedded_hal::{
     digital::{OutputPin, PinState},
 };
 
+const DAP2_PACKET_SIZE: u16 = 512;
+
 pub struct Context {
     max_frequency: u32,
     cpu_frequency: u32,
     cycles_per_us: u32,
     half_period_ticks: u32,
     delay: &'static Delay,
-    swdio: SwdioPin,
-    swclk: SwclkPin,
-    nreset: ResetPin,
+    swdio_tms: SwdioPin, // Shared by SWD and JTAG
+    swclk_tck: SwclkPin, // Shared by SWD and JTAG
+    tdo: DynPin,
+    tdi: DynPin,
+    nreset: ResetPin, // Shared by SWD and JTAG
     dir_swdio: DirSwdioPin,
     dir_swclk: DirSwclkPin,
+}
+
+struct JtagPins {
+    tms: DynPin, // Shared by SWDIO
+    tck: DynPin, // Shared by SWCLK
+    tdo: DynPin,
+    tdi: DynPin,
+    nreset: DynPin,
+}
+
+impl From<Context> for JtagPins {
+    fn from(value: Context) -> Self {
+        Self {
+            tms: value.swdio_tms,
+            tck: value.swclk_tck,
+            tdo: value.tdo,
+            tdi: value.tdi,
+            nreset: value.nreset,
+        }
+    }
+}
+
+struct SwdPins {
+    swdio: DynPin, // Shared by TMS
+    swclk: DynPin, // Shared by TCK
+    nreset: DynPin,
+    dir_swdio: DynPin,
+    dir_swclk: DynPin,
+}
+
+impl From<Context> for SwdPins {
+    fn from(value: Context) -> Self {
+        Self {
+            swdio: value.swdio_tms,
+            swclk: value.swclk_tck,
+            nreset: value.nreset,
+            dir_swdio: value.dir_swdio,
+            dir_swclk: value.dir_swclk,
+        }
+    }
 }
 
 impl defmt::Format for Context {
@@ -51,30 +95,32 @@ impl Context {
     fn swdio_to_input(&mut self) {
         defmt::trace!("SWDIO -> input");
         self.dir_swdio.set_low().ok();
-        self.swdio.into_input();
+        self.swdio_tms.into_input();
     }
 
     fn swdio_to_output(&mut self) {
         defmt::trace!("SWDIO -> output");
-        self.swdio.into_output_in_state(PinState::High);
+        self.swdio_tms.into_output_in_state(PinState::High);
         self.dir_swdio.set_high().ok();
     }
 
     fn swclk_to_input(&mut self) {
         defmt::trace!("SWCLK -> input");
         self.dir_swclk.set_low().ok();
-        self.swclk.into_input();
+        self.swclk_tck.into_input();
     }
 
     fn swclk_to_output(&mut self) {
         defmt::trace!("SWCLK -> output");
-        self.swclk.into_output_in_state(PinState::High);
+        self.swclk_tck.into_output_in_state(PinState::High);
         self.dir_swclk.set_high().ok();
     }
 
     fn from_pins(
         swdio: SwdioPin,
         swclk: SwclkPin,
+        tdi: DynPin,
+        tdo: DynPin,
         nreset: ResetPin,
         mut dir_swdio: DirSwdioPin,
         mut dir_swclk: DirSwclkPin,
@@ -94,8 +140,10 @@ impl Context {
             cycles_per_us: cpu_frequency / 1_000_000,
             half_period_ticks,
             delay,
-            swdio,
-            swclk,
+            swdio_tms: swdio,
+            swclk_tck: swclk,
+            tdi,
+            tdo,
             nreset,
             dir_swdio,
             dir_swclk,
@@ -108,18 +156,18 @@ impl swj::Dependencies<Swd, Jtag> for Context {
         if mask.contains(swj::Pins::SWCLK) {
             self.swclk_to_output();
             if output.contains(swj::Pins::SWCLK) {
-                self.swclk.set_high();
+                self.swclk_tck.set_high();
             } else {
-                self.swclk.set_low();
+                self.swclk_tck.set_low();
             }
         }
 
         if mask.contains(swj::Pins::SWDIO) {
             self.swdio_to_output();
             if output.contains(swj::Pins::SWDIO) {
-                self.swdio.set_high();
+                self.swdio_tms.set_high();
             } else {
-                self.swdio.set_low();
+                self.swdio_tms.set_low();
             }
         }
 
@@ -157,8 +205,8 @@ impl swj::Dependencies<Swd, Jtag> for Context {
         }
 
         let mut ret = swj::Pins::empty();
-        ret.set(swj::Pins::SWCLK, self.swclk.is_high());
-        ret.set(swj::Pins::SWDIO, self.swdio.is_high());
+        ret.set(swj::Pins::SWCLK, self.swclk_tck.is_high());
+        ret.set(swj::Pins::SWDIO, self.swdio_tms.is_high());
         ret.set(swj::Pins::NRESET, self.nreset.is_high());
 
         trace!(
@@ -187,13 +235,13 @@ impl swj::Dependencies<Swd, Jtag> for Context {
                 let bit = byte & 1;
                 byte >>= 1;
                 if bit != 0 {
-                    self.swdio.set_high();
+                    self.swdio_tms.set_high();
                 } else {
-                    self.swdio.set_low();
+                    self.swdio_tms.set_low();
                 }
-                self.swclk.set_low();
+                self.swclk_tck.set_low();
                 last = self.delay.delay_ticks_from_last(half_period_ticks, last);
-                self.swclk.set_high();
+                self.swclk_tck.set_high();
                 last = self.delay.delay_ticks_from_last(half_period_ticks, last);
             }
             bits -= frame_bits;
@@ -220,38 +268,280 @@ impl swj::Dependencies<Swd, Jtag> for Context {
     }
 }
 
-pub struct Jtag(Context);
+pub struct Jtag {
+    context: Context,
+    pins: JtagPins,
+}
 
 impl From<Jtag> for Context {
     fn from(value: Jtag) -> Self {
-        value.0
+        value.context
     }
 }
 
 impl From<Context> for Jtag {
     fn from(value: Context) -> Self {
-        Self(value)
+        Self {
+            context: value,
+            pins: value.into(),
+        }
     }
 }
 
+// https://github.com/probe-rs/hs-probe-firmware/blob/master/firmware/src/jtag.rs
 impl jtag::Jtag<Context> for Jtag {
-    const AVAILABLE: bool = false;
+    const AVAILABLE: bool = true;
 
-    fn sequences(&mut self, _data: &[u8], _rxbuf: &mut [u8]) -> u32 {
-        0
+    /// Handle a sequence request. The request data follows the CMSIS-DAP
+    /// DAP_JTAG_Sequence command:
+    /// * First byte contains the number of sequences, then
+    /// * First byte of each sequence contains:
+    ///     * Bits 5..0: Number of clock cycles, where 0 means 64 cycles
+    ///     * Bit 6: TMS value
+    ///     * Bit 7: TDO capture enable
+    /// * Subsequent bytes of each sequence contain TDI data, one bit per
+    ///   clock cycle, with the final byte padded. Data is transmitted from
+    ///   successive bytes, least significant bit first.
+    ///
+    /// Captured TDO data is written least significant bit first to successive
+    /// bytes of `rxbuf`, which must be long enough for the requested capture,
+    /// or conservatively as long as `data`.
+    /// The final byte of TDO data for each sequence is padded, in other words,
+    /// as many TDO bytes will be returned as there were TDI bytes in sequences
+    /// with capture enabled.
+    ///
+    /// Returns the number of bytes of rxbuf which were written to.
+    fn sequences(&mut self, data: &[u8], rxbuf: &mut [u8]) -> u32 {
+        // Read request header containing number of sequences.
+        if data.is_empty() {
+            return 0;
+        };
+        let mut nseqs = data[0];
+        let mut data = &data[1..];
+        let mut rxidx = 0;
+
+        // Sanity check
+        if nseqs == 0 || data.is_empty() {
+            return 0;
+        }
+
+        let half_period_ticks = self.context.half_period_ticks;
+        self.context.delay.delay_ticks(half_period_ticks);
+
+        // Process alike sequences in one shot
+        if !self.context.use_bitbang.load(Ordering::SeqCst) {
+            let mut buffer = [0u8; DAP2_PACKET_SIZE as usize];
+            let mut buffer_idx = 0;
+            let transfer_type = data[0] & 0b1100_0000;
+            while nseqs > 0 {
+                // Read header byte for this sequence.
+                if data.is_empty() {
+                    break;
+                };
+                let header = data[0];
+                if (header & 0b1100_0000) != transfer_type {
+                    // This sequence can't be processed in the same way
+                    break;
+                }
+                let nbits = header & 0b0011_1111;
+                if nbits & 7 != 0 {
+                    // We can handle only 8*N bit sequences here
+                    break;
+                }
+                let nbits = if nbits == 0 { 64 } else { nbits as usize };
+                let nbytes = Self::bytes_for_bits(nbits);
+
+                if data.len() < (nbytes + 1) {
+                    break;
+                };
+                data = &data[1..];
+
+                buffer[buffer_idx..buffer_idx + nbytes].copy_from_slice(&data[..nbytes]);
+                buffer_idx += nbytes;
+                nseqs -= 1;
+                data = &data[nbytes..];
+            }
+            if buffer_idx > 0 {
+                let capture = transfer_type & 0b1000_0000;
+                let tms = transfer_type & 0b0100_0000;
+
+                // Set TMS for this transfer.
+                self.pins.tms.set_bool(tms != 0);
+
+                self.spi_mode();
+                self.spi
+                    .jtag_exchange(self.dma, &buffer[..buffer_idx], &mut rxbuf[rxidx..]);
+                if capture != 0 {
+                    rxidx += buffer_idx;
+                }
+                // Set TDI GPIO to the last bit the SPI peripheral transmitted,
+                // to prevent it changing state when we set it to an output.
+                self.pins.tdi.set_bool((buffer[buffer_idx - 1] >> 7) != 0);
+                self.bitbang_mode();
+                self.spi.disable();
+            }
+        }
+
+        // Process each sequence.
+        for _ in 0..nseqs {
+            // Read header byte for this sequence.
+            if data.is_empty() {
+                break;
+            };
+            let header = data[0];
+            data = &data[1..];
+            let capture = header & 0b1000_0000;
+            let tms = header & 0b0100_0000;
+            let nbits = header & 0b0011_1111;
+            let nbits = if nbits == 0 { 64 } else { nbits as usize };
+            let nbytes = Self::bytes_for_bits(nbits);
+            if data.len() < nbytes {
+                break;
+            };
+
+            // Split data into TDI data for this sequence and data for remaining sequences.
+            let tdi = &data[..nbytes];
+            data = &data[nbytes..];
+
+            // Set TMS for this transfer.
+            self.pins.tms.set_bool(tms != 0);
+
+            // Run one transfer, either read-write or write-only.
+            if capture != 0 {
+                self.transfer_rw(nbits, tdi, &mut rxbuf[rxidx..]);
+                rxidx += nbytes;
+            } else {
+                self.transfer_wo(nbits, tdi);
+            }
+        }
+
+        rxidx as u32 // @fixme: coalescing for now
     }
 
     fn set_clock(&mut self, max_frequency: u32) -> bool {
-        self.0.process_swj_clock(max_frequency)
+        self.context.process_swj_clock(max_frequency)
+    }
+}
+
+impl Jtag {
+    #[inline(never)]
+    pub fn tms_sequence(&self, data: &[u8], mut bits: usize) {
+        self.bitbang_mode();
+
+        let half_period_ticks = self.0.half_period_ticks;
+        let mut last = self.context.delay.get_current();
+        last = self
+            .context
+            .delay
+            .delay_ticks_from_last(half_period_ticks, last);
+
+        for byte in data {
+            let mut byte = *byte;
+            let frame_bits = core::cmp::min(bits, 8);
+            for _ in 0..frame_bits {
+                let bit = byte & 1;
+                byte >>= 1;
+
+                self.pins.tms.set_bool(bit != 0);
+                self.pins.tck.set_low();
+                last = self
+                    .context
+                    .delay
+                    .delay_ticks_from_last(half_period_ticks, last);
+                self.pins.tck.set_high();
+                last = self
+                    .context
+                    .delay
+                    .delay_ticks_from_last(half_period_ticks, last);
+            }
+            bits -= frame_bits;
+        }
+    }
+
+    /// Write-only JTAG transfer without capturing TDO.
+    ///
+    /// Writes `n` bits from successive bytes of `tdi`, LSbit first.
+    #[inline(never)]
+    fn transfer_wo(&self, n: usize, tdi: &[u8]) {
+        let half_period_ticks = self.context.half_period_ticks;
+        let mut last = self.context.delay.get_current();
+
+        for (byte_idx, byte) in tdi.iter().enumerate() {
+            for bit_idx in 0..8 {
+                // Stop after transmitting `n` bits.
+                if byte_idx * 8 + bit_idx == n {
+                    return;
+                }
+
+                // Set TDI and toggle TCK.
+                self.pins.tdi.set_bool(byte & (1 << bit_idx) != 0);
+                last = self
+                    .context
+                    .delay
+                    .delay_ticks_from_last(half_period_ticks, last);
+                self.pins.tck.set_high();
+                last = self
+                    .context
+                    .delay
+                    .delay_ticks_from_last(half_period_ticks, last);
+                self.pins.tck.set_low();
+            }
+        }
+    }
+
+    /// Read-write JTAG transfer, with TDO capture.
+    ///
+    /// Writes `n` bits from successive bytes of `tdi`, LSbit first.
+    /// Captures `n` bits from TDO and writes into successive bytes of `tdo`, LSbit first.
+    #[inline(never)]
+    fn transfer_rw(&self, n: usize, tdi: &[u8], tdo: &mut [u8]) {
+        let half_period_ticks = self.context.half_period_ticks;
+        let mut last = self.context.delay.get_current();
+
+        for (byte_idx, (tdi, tdo)) in tdi.iter().zip(tdo.iter_mut()).enumerate() {
+            *tdo = 0;
+            for bit_idx in 0..8 {
+                // Stop after transmitting `n` bits.
+                if byte_idx * 8 + bit_idx == n {
+                    return;
+                }
+
+                // We set TDI half a period before the clock rising edge where it is sampled
+                // by the target, and we sample TDO immediately before the clock falling edge
+                // where it is updated by the target.
+                self.pins.tdi.set_bool(tdi & (1 << bit_idx) != 0);
+                last = self
+                    .context
+                    .delay
+                    .delay_ticks_from_last(half_period_ticks, last);
+                self.pins.tck.set_high();
+                last = self
+                    .context
+                    .delay
+                    .delay_ticks_from_last(half_period_ticks, last);
+                if self.pins.tdo.is_high()? {
+                    *tdo |= 1 << bit_idx;
+                }
+                self.pins.tck.set_low();
+            }
+        }
+    }
+
+    /// Compute required number of bytes to store a number of bits.
+    fn bytes_for_bits(bits: usize) -> usize {
+        (bits + 7) / 8
     }
 }
 
 #[derive(Debug, defmt::Format)]
-pub struct Swd(Context);
+pub struct Swd {
+    context: Context,
+    pins: SwdPins,
+}
 
 impl From<Swd> for Context {
     fn from(value: Swd) -> Self {
-        value.0
+        value.context
     }
 }
 
@@ -262,7 +552,10 @@ impl From<Context> for Swd {
         value.swclk_to_output();
         value.nreset.into_input();
 
-        Self(value)
+        Self {
+            context: value,
+            pins: value.into(),
+        }
     }
 }
 
@@ -381,15 +674,15 @@ impl swd::Swd<Context> for Swd {
 
     fn set_clock(&mut self, max_frequency: u32) -> bool {
         trace!("SWD set clock: freq = {}", max_frequency);
-        self.0.process_swj_clock(max_frequency)
+        self.context.process_swj_clock(max_frequency)
     }
 }
 
 impl Swd {
     fn tx8(&mut self, mut data: u8) {
-        self.0.swdio_to_output();
+        self.context.swdio_to_output();
 
-        let mut last = self.0.delay.get_current();
+        let mut last = self.context.delay.get_current();
 
         for _ in 0..8 {
             self.write_bit(data & 1, &mut last);
@@ -398,10 +691,10 @@ impl Swd {
     }
 
     fn rx4(&mut self) -> u8 {
-        self.0.swdio_to_input();
+        self.context.swdio_to_input();
 
         let mut data = 0;
-        let mut last = self.0.delay.get_current();
+        let mut last = self.context.delay.get_current();
 
         for i in 0..4 {
             data |= (self.read_bit(&mut last) & 1) << i;
@@ -411,7 +704,7 @@ impl Swd {
     }
 
     fn rx5(&mut self) -> u8 {
-        self.0.swdio_to_input();
+        self.context.swdio_to_input();
 
         let mut last = self.0.delay.get_current();
 
@@ -425,9 +718,9 @@ impl Swd {
     }
 
     fn send_data(&mut self, mut data: u32, parity: bool) {
-        self.0.swdio_to_output();
+        self.context.swdio_to_output();
 
-        let mut last = self.0.delay.get_current();
+        let mut last = self.context.delay.get_current();
 
         for _ in 0..32 {
             self.write_bit((data & 1) as u8, &mut last);
@@ -438,11 +731,11 @@ impl Swd {
     }
 
     fn read_data(&mut self) -> (u32, bool) {
-        self.0.swdio_to_input();
+        self.context.swdio_to_input();
 
         let mut data = 0;
 
-        let mut last = self.0.delay.get_current();
+        let mut last = self.context.delay.get_current();
 
         for i in 0..32 {
             data |= (self.read_bit(&mut last) as u32 & 1) << i;
@@ -456,28 +749,40 @@ impl Swd {
     #[inline(always)]
     fn write_bit(&mut self, bit: u8, last: &mut u32) {
         if bit != 0 {
-            self.0.swdio.set_high();
+            self.pins.swdio.set_high();
         } else {
-            self.0.swdio.set_low();
+            self.pins.swdio.set_low();
         }
 
-        let half_period_ticks = self.0.half_period_ticks;
+        let half_period_ticks = self.context.half_period_ticks;
 
-        self.0.swclk.set_low();
-        *last = self.0.delay.delay_ticks_from_last(half_period_ticks, *last);
-        self.0.swclk.set_high();
-        *last = self.0.delay.delay_ticks_from_last(half_period_ticks, *last);
+        self.pins.swclk.set_low();
+        *last = self
+            .context
+            .delay
+            .delay_ticks_from_last(half_period_ticks, *last);
+        self.pins.swclk.set_high();
+        *last = self
+            .context
+            .delay
+            .delay_ticks_from_last(half_period_ticks, *last);
     }
 
     #[inline(always)]
     fn read_bit(&mut self, last: &mut u32) -> u8 {
-        let half_period_ticks = self.0.half_period_ticks;
+        let half_period_ticks = self.context.half_period_ticks;
 
-        self.0.swclk.set_low();
-        *last = self.0.delay.delay_ticks_from_last(half_period_ticks, *last);
-        let bit = self.0.swdio.is_high() as u8;
-        self.0.swclk.set_high();
-        *last = self.0.delay.delay_ticks_from_last(half_period_ticks, *last);
+        self.pins.swclk.set_low();
+        *last = self
+            .context
+            .delay
+            .delay_ticks_from_last(half_period_ticks, *last);
+        let bit = self.pins.swdio.is_high() as u8;
+        self.pins.swclk.set_high();
+        *last = self
+            .context
+            .delay
+            .delay_ticks_from_last(half_period_ticks, *last);
 
         bit
     }
@@ -553,6 +858,8 @@ pub fn create_dap(
     version_string: &'static str,
     swdio: SwdioPin,
     swclk: SwclkPin,
+    tdi: DynPin,
+    tdo: DynPin,
     nreset: ResetPin,
     dir_swdio: DirSwdioPin,
     dir_swclk: DirSwclkPin,
@@ -563,6 +870,8 @@ pub fn create_dap(
     let context = Context::from_pins(
         swdio,
         swclk,
+        tdi,
+        tdo,
         nreset,
         dir_swdio,
         dir_swclk,

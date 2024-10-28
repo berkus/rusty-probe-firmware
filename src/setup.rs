@@ -1,25 +1,30 @@
-use crate::dap::{Context, Jtag, Swd, Swo, Wait};
-use crate::leds::{BoardLeds, HostStatusToken, LedManager};
-use crate::systick_delay::Delay;
-use crate::{dap, usb::ProbeUsb};
+use crate::{
+    dap,
+    dap::{Context, Jtag, Swd, Swo, Wait},
+    leds::{BoardLeds, HostStatusToken, LedManager},
+    systick_delay::Delay,
+    usb::ProbeUsb,
+};
 use core::mem::MaybeUninit;
 use dap_rs::usb_device::class_prelude::UsbBusAllocator;
-use embedded_hal::digital::{InputPin, OutputPin, StatefulOutputPin};
-use embedded_hal::pwm::SetDutyCycle;
+use embedded_hal::{
+    digital::{InputPin, OutputPin, StatefulOutputPin},
+    pwm::SetDutyCycle,
+};
 use embedded_hal_02::adc::OneShot;
 use replace_with::replace_with_or_abort_unchecked;
-use rp2040_hal::adc::AdcPin;
-use rp2040_hal::gpio::bank0::{
-    Gpio0, Gpio10, Gpio11, Gpio12, Gpio16, Gpio17, Gpio19, Gpio20, Gpio21, Gpio26, Gpio27, Gpio28,
-    Gpio29, Gpio3, Gpio5, Gpio6, Gpio7, Gpio8, Gpio9,
-};
-use rp2040_hal::gpio::{
-    FunctionSio, FunctionSioInput, FunctionSioOutput, PinId, PinState, PullDown, PullNone,
-    PullType, PullUp, SioInput, SioOutput, ValidFunction,
-};
 use rp2040_hal::{
+    adc::AdcPin,
     clocks::init_clocks_and_plls,
-    gpio::{OutputDriveStrength, OutputSlewRate, Pin, Pins},
+    gpio::{
+        bank0::{
+            Gpio0, Gpio10, Gpio11, Gpio12, Gpio16, Gpio17, Gpio19, Gpio20, Gpio21, Gpio26, Gpio27,
+            Gpio28, Gpio29, Gpio3, Gpio5, Gpio6, Gpio7, Gpio8, Gpio9,
+        },
+        FunctionSio, FunctionSioInput, FunctionSioOutput, OutputDriveStrength, OutputSlewRate, Pin,
+        PinId, PinState, Pins, PullDown, PullNone, PullType, PullUp, SioInput, SioOutput,
+        ValidFunction,
+    },
     pac,
     pwm::{self, FreeRunning, Pwm0, Pwm2, Slice},
     rom_data,
@@ -122,6 +127,36 @@ pub fn setup(
     let sio = Sio::new(pac.SIO);
     let pins = Pins::new(pac.IO_BANK0, pac.PADS_BANK0, sio.gpio_bank0, &mut resets);
 
+    // GPIO map:
+    // GPIO0 - VTgt Power
+    // ...
+    // GPIO3 - Enable 5v Key
+    // ...
+    // GPIO5 - VTranslator 1v8
+    // GPIO6 - Enable VTgt Power
+    // GPIO7 - Enable 5v Power
+    // GPIO8 - GNDdetect
+    // GPIO9 - Reset
+    // GPIO10 - SWDIO/TMS
+    // GPIO11 - SWCLK/TCK
+    // GPIO12 - SWDIO/TMS Direction
+    // ...
+    // GPIO16 - SWO/TDO
+    // GPIO17 - TDI
+    // ...
+    // GPIO19 - SWCLK/TCK Direction
+    // GPIO20 - VCP TX
+    // GPIO21 - VCP RX
+    // GPIO22 - SWO/TDO Direction
+    // GPIO23 - TDI Direction
+    // GPIO24 - VCP TX Direction
+    // GPIO25 - VCP RX Direction
+    // GPIO26 - VTref ADC
+    // GPIO27 - Green LED
+    // GPIO28 - Red LED
+    // GPIO29 - Blue LED
+    // ...
+
     let mut led_green = pins.gpio27.into_push_pull_output();
     led_green.set_high().ok();
     let mut led_red = pins.gpio28.into_push_pull_output();
@@ -175,12 +210,23 @@ pub fn setup(
 
     cortex_m::asm::delay(1_000_000);
 
+    //                     +-----------------+
+    //          VCC        |  1 *       * 2  | SWDIO  /TMS  -- GPIO10
+    //          GND        |  3 *       * 4  | SWDCLK /TCK  -- GPIO11
+    //          GND       ||  5 *       * 6  | SWO    /TDO  -- GPIO16
+    //          5V/Key     |  7 *       * 8  |        /TDI  -- GPIO17
+    // GPIO8 -- GNDDetect  |  9 *       * 10 | nRESET       -- GPIO9
+    //                     +-----------------+
+
     let mut io = pins.gpio10;
     let mut ck = pins.gpio11;
     let mut dir_io = pins.gpio12;
     let mut dir_ck = pins.gpio19;
     let reset = pins.gpio9;
     let gnd_detect = pins.gpio8.into_pull_up_input();
+
+    let _tdo_swo = pins.gpio16;
+    let _dir_tdo_swo = pins.gpio22;
 
     let _tdi = pins.gpio17;
     let _dir_tdi = pins.gpio23;

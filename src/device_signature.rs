@@ -1,7 +1,6 @@
 use core::ptr::addr_of;
 use cortex_m::interrupt;
-use rp2040_hal::pac;
-use rp2040_hal::rom_data;
+use rp2040_hal::{pac, rom_data};
 
 pub fn device_id_hex() -> &'static str {
     static mut DEVICE_ID_STR: [u8; 22] = [0; 22];

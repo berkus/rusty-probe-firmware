@@ -1,13 +1,14 @@
-use core::marker::PhantomData;
-use core::num::NonZeroU8;
-use core::sync::atomic::{AtomicU8, Ordering};
-use core::task::Poll;
+use core::{
+    marker::PhantomData,
+    num::NonZeroU8,
+    sync::atomic::{AtomicU8, Ordering},
+    task::Poll,
+};
 
 use dap_rs::dap::DapLeds;
 use embedded_hal::digital::OutputPin;
 use rtic_common::waker_registration::CriticalSectionWakerRegistration;
-use rtic_monotonics::fugit::ExtU64;
-use rtic_monotonics::Monotonic;
+use rtic_monotonics::{fugit::ExtU64, Monotonic};
 
 use crate::setup::{LedBluePin, LedGreenPin, LedRedPin, Mono};
 

@@ -62,7 +62,7 @@ ack_loop:
     in pins, 1                  side 0b01
     jmp x-- ack_loop            side 0b00
 
-; push ack to fifi (word 0)
+; push ack to fifo (word 0)
 push                            side 0b00
 
 ; 3. read/write data

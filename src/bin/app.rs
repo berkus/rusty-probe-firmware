@@ -7,12 +7,12 @@ use rusty_probe as _;
 mod app {
     use core::mem::MaybeUninit;
     use dap_rs::usb_device::class_prelude::*;
+    use rp2040_hal::usb::UsbBus;
+    use rtic_monotonics::rp2040::prelude::*;
     use rusty_probe::{
         leds::{LedManager, Vtarget},
         setup::*,
     };
-    use rp2040_hal::usb::UsbBus;
-    use rtic_monotonics::rp2040::prelude::*;
 
     #[shared]
     struct Shared {

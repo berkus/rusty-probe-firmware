@@ -1,5 +1,7 @@
-use dap_rs::usb::{dap_v1::CmsisDapV1, dap_v2::CmsisDapV2, winusb::MicrosoftDescriptors, Request};
-use dap_rs::usb_device::{class_prelude::*, prelude::*};
+use dap_rs::{
+    usb::{dap_v1::CmsisDapV1, dap_v2::CmsisDapV2, winusb::MicrosoftDescriptors, Request},
+    usb_device::{class_prelude::*, prelude::*},
+};
 use defmt::*;
 use rp2040_hal::usb::UsbBus;
 use usbd_serial::SerialPort;

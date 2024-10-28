@@ -9,10 +9,8 @@ mod app {
     use core::mem::MaybeUninit;
     use dap_rs::usb_device::class_prelude::*;
     use embedded_hal::digital::v2::OutputPin;
-    use rusty_probe::leds::BoardLeds;
-    use rusty_probe::setup::*;
-    use rp2040_hal::gpio::PinState;
-    use rp2040_hal::usb::UsbBus;
+    use rp2040_hal::{gpio::PinState, usb::UsbBus};
+    use rusty_probe::{leds::BoardLeds, setup::*};
 
     use rtic_monotonics::systick::*;
 
