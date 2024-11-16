@@ -1,5 +1,4 @@
 use crate::{
-    jtag::JtagPins,
     setup::{DirSwclkPin, DirSwdioPin, ResetPin, SwclkPin, SwdioPin, TdiPin, TdoSwoPin},
     systick_delay::Delay,
 };
@@ -334,58 +333,62 @@ impl jtag::Jtag<Context> for Jtag {
         self.context.delay.delay_ticks(half_period_ticks);
 
         // Process alike sequences in one shot
-        if !self.context.use_bitbang.load(Ordering::SeqCst) {
-            let mut buffer = [0u8; DAP2_PACKET_SIZE as usize];
-            let mut buffer_idx = 0;
-            let transfer_type = data[0] & 0b1100_0000;
-            while nseqs > 0 {
-                // Read header byte for this sequence.
-                if data.is_empty() {
-                    break;
-                };
-                let header = data[0];
-                if (header & 0b1100_0000) != transfer_type {
-                    // This sequence can't be processed in the same way
-                    break;
-                }
-                let nbits = header & 0b0011_1111;
-                if nbits & 7 != 0 {
-                    // We can handle only 8*N bit sequences here
-                    break;
-                }
-                let nbits = if nbits == 0 { 64 } else { nbits as usize };
-                let nbytes = Self::bytes_for_bits(nbits);
+        // if !self.context.use_bitbang.load(Ordering::SeqCst) {
+        // let mut buffer = [0u8; DAP2_PACKET_SIZE as usize];
+        // let mut buffer_idx = 0;
+        // let transfer_type = data[0] & 0b1100_0000;
+        // while nseqs > 0 {
+        //     // Read header byte for this sequence.
+        //     if data.is_empty() {
+        //         break;
+        //     };
+        //     let header = data[0];
+        //     if (header & 0b1100_0000) != transfer_type {
+        //         // This sequence can't be processed in the same way
+        //         break;
+        //     }
+        //     let nbits = header & 0b0011_1111;
+        //     if nbits & 7 != 0 {
+        //         // We can handle only 8*N bit sequences here
+        //         break;
+        //     }
+        //     let nbits = if nbits == 0 { 64 } else { nbits as usize };
+        //     let nbytes = Self::bytes_for_bits(nbits);
 
-                if data.len() < (nbytes + 1) {
-                    break;
-                };
-                data = &data[1..];
+        //     if data.len() < (nbytes + 1) {
+        //         break;
+        //     };
+        //     data = &data[1..];
 
-                buffer[buffer_idx..buffer_idx + nbytes].copy_from_slice(&data[..nbytes]);
-                buffer_idx += nbytes;
-                nseqs -= 1;
-                data = &data[nbytes..];
-            }
-            if buffer_idx > 0 {
-                let capture = transfer_type & 0b1000_0000;
-                let tms = transfer_type & 0b0100_0000;
+        //     buffer[buffer_idx..buffer_idx + nbytes].copy_from_slice(&data[..nbytes]);
+        //     buffer_idx += nbytes;
+        //     nseqs -= 1;
+        //     data = &data[nbytes..];
+        // }
+        // if buffer_idx > 0 {
+        //     let capture = transfer_type & 0b1000_0000;
+        //     let tms = transfer_type & 0b0100_0000;
 
-                // Set TMS for this transfer.
-                self.pins.tms.set_bool(tms != 0);
+        //     // Set TMS for this transfer.
+        //     if tms != 0 {
+        //         self.pins.tms.set_high();
+        //     } else {
+        //         self.pins.tms.set_low();
+        //     }
 
-                self.spi_mode();
-                self.spi
-                    .jtag_exchange(self.dma, &buffer[..buffer_idx], &mut rxbuf[rxidx..]);
-                if capture != 0 {
-                    rxidx += buffer_idx;
-                }
-                // Set TDI GPIO to the last bit the SPI peripheral transmitted,
-                // to prevent it changing state when we set it to an output.
-                self.pins.tdi.set_bool((buffer[buffer_idx - 1] >> 7) != 0);
-                self.bitbang_mode();
-                self.spi.disable();
-            }
-        }
+        //     // self.spi_mode();
+        //     // self.spi
+        //     //     .jtag_exchange(self.dma, &buffer[..buffer_idx], &mut rxbuf[rxidx..]);
+        //     if capture != 0 {
+        //         rxidx += buffer_idx;
+        //     }
+        //     // Set TDI GPIO to the last bit the SPI peripheral transmitted,
+        //     // to prevent it changing state when we set it to an output.
+        //     self.pins.tdi.set_bool((buffer[buffer_idx - 1] >> 7) != 0);
+        //     self.bitbang_mode();
+        //     self.spi.disable();
+        // }
+        // }
 
         // Process each sequence.
         for _ in 0..nseqs {
@@ -409,7 +412,11 @@ impl jtag::Jtag<Context> for Jtag {
             data = &data[nbytes..];
 
             // Set TMS for this transfer.
-            self.pins.tms.set_bool(tms != 0);
+            if tms != 0 {
+                self.pins.tms.set_high();
+            } else {
+                self.pins.tms.set_low();
+            }
 
             // Run one transfer, either read-write or write-only.
             if capture != 0 {
@@ -437,10 +444,9 @@ impl Jtag {
 
     /// Send a sequence of TMS bits.
     #[inline(never)]
-    pub fn tms_sequence(&self, data: &[u8], mut bits: usize) {
-        self.bitbang_mode();
+    pub fn tms_sequence(&mut self, data: &[u8], mut bits: usize) {
+        // self.bitbang_mode();
 
-        let half_period_ticks = self.context.half_period_ticks;
         let mut last = self.context.delay.get_current();
         last = self.wait_half_period(last);
 
@@ -451,7 +457,11 @@ impl Jtag {
                 let bit = byte & 1;
                 byte >>= 1;
 
-                self.pins.tms.set_bool(bit != 0);
+                if bit != 0 {
+                    self.pins.tms.set_high();
+                } else {
+                    self.pins.tms.set_low();
+                }
                 self.pins.tck.set_low();
                 last = self.wait_half_period(last);
                 self.pins.tck.set_high();
@@ -471,7 +481,7 @@ impl Jtag {
     /// 01010101 10101010 01010101 10101010 01010101 10101010 01010101 10101010
     ///
     #[inline(never)]
-    fn transfer_wo(&self, n: usize, tdi: &[u8]) {
+    fn transfer_wo(&mut self, n: usize, tdi: &[u8]) {
         let mut last = self.context.delay.get_current();
 
         for (byte_idx, byte) in tdi.iter().enumerate() {
@@ -482,7 +492,11 @@ impl Jtag {
                 }
 
                 // Set TDI and toggle TCK.
-                self.pins.tdi.set_bool(byte & (1 << bit_idx) != 0);
+                if byte & (1 << bit_idx) != 0 {
+                    self.pins.tdi.set_high();
+                } else {
+                    self.pins.tdi.set_low();
+                }
                 last = self.wait_half_period(last);
                 self.pins.tck.set_high();
                 last = self.wait_half_period(last);
@@ -496,7 +510,7 @@ impl Jtag {
     /// Writes `n` bits from successive bytes of `tdi`, LSbit first.
     /// Captures `n` bits from TDO and writes into successive bytes of `tdo`, LSbit first.
     #[inline(never)]
-    fn transfer_rw(&self, n: usize, tdi: &[u8], tdo: &mut [u8]) {
+    fn transfer_rw(&mut self, n: usize, tdi: &[u8], tdo: &mut [u8]) {
         let mut last = self.context.delay.get_current();
 
         for (byte_idx, (tdi, tdo)) in tdi.iter().zip(tdo.iter_mut()).enumerate() {
@@ -510,11 +524,15 @@ impl Jtag {
                 // We set TDI half a period before the clock rising edge where it is sampled
                 // by the target, and we sample TDO immediately before the clock falling edge
                 // where it is updated by the target.
-                self.pins.tdi.set_bool(tdi & (1 << bit_idx) != 0);
+                if tdi & (1 << bit_idx) != 0 {
+                    self.pins.tdi.set_high();
+                } else {
+                    self.pins.tdi.set_low();
+                }
                 last = self.wait_half_period(last);
                 self.pins.tck.set_high();
                 last = self.wait_half_period(last);
-                if self.pins.tdo.is_high()? {
+                if self.pins.tdo.is_high() {
                     *tdo |= 1 << bit_idx;
                 }
                 self.pins.tck.set_low();
@@ -589,7 +607,7 @@ impl swd::Swd<Context> for Swd {
         let (data, parity) = self.read_data();
 
         // Turnaround + trailing
-        let mut last = self.0.delay.get_current();
+        let mut last = self.context.delay.get_current();
         self.read_bit(&mut last);
         self.tx8(0); // Drive the SWDIO line to 0 to not float
 
@@ -711,7 +729,7 @@ impl Swd {
     fn rx5(&mut self) -> u8 {
         self.context.swdio_to_input();
 
-        let mut last = self.0.delay.get_current();
+        let mut last = self.context.delay.get_current();
 
         let mut data = 0;
 
