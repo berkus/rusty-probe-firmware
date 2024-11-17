@@ -12,7 +12,7 @@
 #
 # The target in this runner is the _host_ compilation target
 # You may have to change it
-runner = "cargo xtask --target x86_64-unknown-linux-gnu debug --defmt-print"
+runner = "cargo xtask --target aarch64-apple-darwin debug --defmt-print"
 
 rustflags = [
   "-C", "linker=flip-link",
@@ -23,7 +23,7 @@ rustflags = [
   # Code-size optimizations.
   #   trap unreachable can save a lot of space, but requires nightly compiler.
   #   uncomment the next line if you wish to enable it
-  # "-Z", "trap-unreachable=no",
+  "-Z", "trap-unreachable=no",
   "-C", "no-vectorize-loops",
 ]
 
@@ -31,7 +31,7 @@ rustflags = [
 target = "thumbv6m-none-eabi"
 
 [env]
-DEFMT_LOG = "info"
+DEFMT_LOG = "trace"
 
 [alias]
 rrb = "run --release --bin"
