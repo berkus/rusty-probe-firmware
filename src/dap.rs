@@ -9,7 +9,7 @@ use embedded_hal::{
     digital::{OutputPin, PinState},
 };
 
-const DAP2_PACKET_SIZE: u16 = 512;
+// const DAP2_PACKET_SIZE: u16 = 512;
 
 pub struct Context {
     max_frequency: u32,

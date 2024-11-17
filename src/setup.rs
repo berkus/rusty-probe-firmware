@@ -259,7 +259,7 @@ pub fn setup(
         DynPin::Input(io.into_pull_down_input()),
         DynPin::Input(ck.into_pull_down_input()),
         DynPin::Input(tdi.into_pull_down_input()),
-        tdo_swo,
+        DynPin::Output(tdo_swo.into_push_pull_output()),
         DynPin::Input(reset.into_floating_input()),
         dir_io.into_push_pull_output().into_pull_type(),
         dir_ck.into_push_pull_output().into_pull_type(),
