@@ -191,9 +191,9 @@ impl swj::Dependencies<Swd, Jtag> for Context {
             // If a pin is selected, make sure its output equals the desired output state, or else
             // continue waiting.
             let swclk_not_in_desired_state = mask.contains(swj::Pins::SWCLK)
-                && output.contains(swj::Pins::SWCLK) != self.swclk.is_high();
+                && output.contains(swj::Pins::SWCLK) != self.swclk_tck.is_high();
             let swdio_not_in_desired_state = mask.contains(swj::Pins::SWDIO)
-                && output.contains(swj::Pins::SWDIO) != self.swdio.is_high();
+                && output.contains(swj::Pins::SWDIO) != self.swdio_tms.is_high();
             let nreset_not_in_desired_state = mask.contains(swj::Pins::NRESET)
                 && output.contains(swj::Pins::NRESET) != self.nreset.is_high();
 
@@ -658,8 +658,8 @@ impl swd::Swd<Context> for Swd {
     }
 
     fn write_sequence(&mut self, mut num_bits: usize, data: &[u8]) -> swd::Result<()> {
-        self.0.swdio_to_output();
-        let mut last = self.0.delay.get_current();
+        self.context.swdio_to_output();
+        let mut last = self.context.delay.get_current();
 
         for b in data {
             let bit_count = core::cmp::min(num_bits, 8);
@@ -673,8 +673,8 @@ impl swd::Swd<Context> for Swd {
     }
 
     fn read_sequence(&mut self, mut num_bits: usize, data: &mut [u8]) -> swd::Result<()> {
-        self.0.swdio_to_input();
-        let mut last = self.0.delay.get_current();
+        self.context.swdio_to_input();
+        let mut last = self.context.delay.get_current();
 
         for b in data {
             let bit_count = core::cmp::min(num_bits, 8);
