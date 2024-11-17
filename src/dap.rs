@@ -26,45 +26,45 @@ pub struct Context {
     dir_swclk: DirSwclkPin,
 }
 
-struct JtagPins {
-    tms: SwdioPin, // Shared by SWDIO
-    tck: SwclkPin, // Shared by SWCLK
-    tdo: TdoSwoPin,
-    tdi: TdiPin,
-    nreset: ResetPin,
-}
+// struct JtagPins<'ctx> {
+//     tms: &'ctx SwdioPin, // Shared by SWDIO
+//     tck: &'ctx SwclkPin, // Shared by SWCLK
+//     tdo: &'ctx TdoSwoPin,
+//     tdi: &'ctx TdiPin,
+//     nreset: &'ctx ResetPin,
+// }
 
-impl From<Context> for JtagPins {
-    fn from(value: Context) -> Self {
-        Self {
-            tms: value.swdio_tms,
-            tck: value.swclk_tck,
-            tdo: value.tdo,
-            tdi: value.tdi,
-            nreset: value.nreset,
-        }
-    }
-}
+// impl<'a> From<&'a Context> for JtagPins<'a> {
+//     fn from(value: &'a Context) -> Self {
+//         Self {
+//             tms: &value.swdio_tms,
+//             tck: &value.swclk_tck,
+//             tdo: &value.tdo,
+//             tdi: &value.tdi,
+//             nreset: &value.nreset,
+//         }
+//     }
+// }
 
-struct SwdPins {
-    swdio: SwdioPin, // Shared by TMS
-    swclk: SwclkPin, // Shared by TCK
-    nreset: ResetPin,
-    dir_swdio: DirSwdioPin,
-    dir_swclk: DirSwclkPin,
-}
+// struct SwdPins {
+//     swdio: SwdioPin, // Shared by TMS
+//     swclk: SwclkPin, // Shared by TCK
+//     nreset: ResetPin,
+//     dir_swdio: DirSwdioPin,
+//     dir_swclk: DirSwclkPin,
+// }
 
-impl From<Context> for SwdPins {
-    fn from(value: Context) -> Self {
-        Self {
-            swdio: value.swdio_tms,
-            swclk: value.swclk_tck,
-            nreset: value.nreset,
-            dir_swdio: value.dir_swdio,
-            dir_swclk: value.dir_swclk,
-        }
-    }
-}
+// impl From<Context> for SwdPins {
+//     fn from(value: Context) -> Self {
+//         Self {
+//             swdio: value.swdio_tms,
+//             swclk: value.swclk_tck,
+//             nreset: value.nreset,
+//             dir_swdio: value.dir_swdio,
+//             dir_swclk: value.dir_swclk,
+//         }
+//     }
+// }
 
 impl defmt::Format for Context {
     fn format(&self, f: defmt::Formatter) {
@@ -274,7 +274,7 @@ impl swj::Dependencies<Swd, Jtag> for Context {
 
 pub struct Jtag {
     context: Context,
-    pins: JtagPins,
+    // pins: &'ctx JtagPins,
 }
 
 impl From<Jtag> for Context {
@@ -285,10 +285,7 @@ impl From<Jtag> for Context {
 
 impl From<Context> for Jtag {
     fn from(value: Context) -> Self {
-        Self {
-            context: value,
-            pins: value.into(),
-        }
+        Self { context: value }
     }
 }
 
@@ -320,7 +317,7 @@ impl jtag::Jtag<Context> for Jtag {
         if data.is_empty() {
             return 0;
         };
-        let mut nseqs = data[0];
+        let nseqs = data[0];
         let mut data = &data[1..];
         let mut rxidx = 0;
 
@@ -413,9 +410,9 @@ impl jtag::Jtag<Context> for Jtag {
 
             // Set TMS for this transfer.
             if tms != 0 {
-                self.pins.tms.set_high();
+                self.context.swdio_tms.set_high();
             } else {
-                self.pins.tms.set_low();
+                self.context.swdio_tms.set_low();
             }
 
             // Run one transfer, either read-write or write-only.
@@ -458,13 +455,13 @@ impl Jtag {
                 byte >>= 1;
 
                 if bit != 0 {
-                    self.pins.tms.set_high();
+                    self.context.swdio_tms.set_high();
                 } else {
-                    self.pins.tms.set_low();
+                    self.context.swdio_tms.set_low();
                 }
-                self.pins.tck.set_low();
+                self.context.swclk_tck.set_low();
                 last = self.wait_half_period(last);
-                self.pins.tck.set_high();
+                self.context.swclk_tck.set_high();
                 last = self.wait_half_period(last);
             }
             bits -= frame_bits;
@@ -493,14 +490,14 @@ impl Jtag {
 
                 // Set TDI and toggle TCK.
                 if byte & (1 << bit_idx) != 0 {
-                    self.pins.tdi.set_high();
+                    self.context.tdi.set_high();
                 } else {
-                    self.pins.tdi.set_low();
+                    self.context.tdi.set_low();
                 }
                 last = self.wait_half_period(last);
-                self.pins.tck.set_high();
+                self.context.swclk_tck.set_high();
                 last = self.wait_half_period(last);
-                self.pins.tck.set_low();
+                self.context.swclk_tck.set_low();
             }
         }
     }
@@ -525,17 +522,17 @@ impl Jtag {
                 // by the target, and we sample TDO immediately before the clock falling edge
                 // where it is updated by the target.
                 if tdi & (1 << bit_idx) != 0 {
-                    self.pins.tdi.set_high();
+                    self.context.tdi.set_high();
                 } else {
-                    self.pins.tdi.set_low();
+                    self.context.tdi.set_low();
                 }
                 last = self.wait_half_period(last);
-                self.pins.tck.set_high();
+                self.context.swclk_tck.set_high();
                 last = self.wait_half_period(last);
-                if self.pins.tdo.is_high() {
+                if self.context.tdo.is_high() {
                     *tdo |= 1 << bit_idx;
                 }
-                self.pins.tck.set_low();
+                self.context.swclk_tck.set_low();
             }
         }
     }
@@ -553,7 +550,6 @@ impl Jtag {
 #[derive(Debug, defmt::Format)]
 pub struct Swd {
     context: Context,
-    pins: SwdPins,
 }
 
 impl From<Swd> for Context {
@@ -571,7 +567,7 @@ impl From<Context> for Swd {
 
         Self {
             context: value,
-            pins: value.into(),
+            // pins: value.into(),
         }
     }
 }
@@ -772,26 +768,26 @@ impl Swd {
     #[inline(always)]
     fn write_bit(&mut self, bit: u8, last: &mut u32) {
         if bit != 0 {
-            self.pins.swdio.set_high();
+            self.context.swdio_tms.set_high();
         } else {
-            self.pins.swdio.set_low();
+            self.context.swdio_tms.set_low();
         }
 
-        self.pins.swclk.set_low();
+        self.context.swclk_tck.set_low();
         *last = self.wait_half_period(*last);
 
-        self.pins.swclk.set_high();
+        self.context.swclk_tck.set_high();
         *last = self.wait_half_period(*last);
     }
 
     #[inline(always)]
     fn read_bit(&mut self, last: &mut u32) -> u8 {
-        self.pins.swclk.set_low();
+        self.context.swclk_tck.set_low();
         *last = self.wait_half_period(*last);
 
-        let bit = self.pins.swdio.is_high() as u8;
+        let bit = self.context.swdio_tms.is_high() as u8;
 
-        self.pins.swclk.set_high();
+        self.context.swclk_tck.set_high();
         *last = self.wait_half_period(*last);
 
         bit
