@@ -225,10 +225,10 @@ pub fn setup(
     let reset = pins.gpio9;
     let gnd_detect = pins.gpio8.into_pull_up_input();
 
-    let _tdo_swo = pins.gpio16;
+    let tdo_swo = pins.gpio16;
     let _dir_tdo_swo = pins.gpio22;
 
-    let _tdi = pins.gpio17;
+    let tdi = pins.gpio17;
     let _dir_tdi = pins.gpio23;
 
     let _vcp_rx = pins.gpio21;
@@ -259,6 +259,8 @@ pub fn setup(
         DynPin::Input(io.into_pull_down_input()),
         DynPin::Input(ck.into_pull_down_input()),
         DynPin::Input(reset.into_floating_input()),
+        tdi,
+        tdo_swo,
         dir_io.into_push_pull_output().into_pull_type(),
         dir_ck.into_push_pull_output().into_pull_type(),
         clocks.system_clock.freq().raw(),

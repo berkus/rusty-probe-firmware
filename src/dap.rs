@@ -1,4 +1,5 @@
 use crate::{
+    jtag::JtagPins,
     setup::{DirSwclkPin, DirSwdioPin, ResetPin, SwclkPin, SwdioPin, TdiPin, TdoSwoPin},
     systick_delay::Delay,
 };
@@ -268,6 +269,10 @@ impl swj::Dependencies<Swd, Jtag> for Context {
     }
 }
 
+//=======================================================================================
+// JTAG interface
+//=======================================================================================
+
 pub struct Jtag {
     context: Context,
     pins: JtagPins,
@@ -424,16 +429,20 @@ impl jtag::Jtag<Context> for Jtag {
 }
 
 impl Jtag {
+    fn wait_half_period(&self, last: u32) -> u32 {
+        self.context
+            .delay
+            .delay_ticks_from_last(self.context.half_period_ticks, last)
+    }
+
+    /// Send a sequence of TMS bits.
     #[inline(never)]
     pub fn tms_sequence(&self, data: &[u8], mut bits: usize) {
         self.bitbang_mode();
 
-        let half_period_ticks = self.0.half_period_ticks;
+        let half_period_ticks = self.context.half_period_ticks;
         let mut last = self.context.delay.get_current();
-        last = self
-            .context
-            .delay
-            .delay_ticks_from_last(half_period_ticks, last);
+        last = self.wait_half_period(last);
 
         for byte in data {
             let mut byte = *byte;
@@ -444,15 +453,9 @@ impl Jtag {
 
                 self.pins.tms.set_bool(bit != 0);
                 self.pins.tck.set_low();
-                last = self
-                    .context
-                    .delay
-                    .delay_ticks_from_last(half_period_ticks, last);
+                last = self.wait_half_period(last);
                 self.pins.tck.set_high();
-                last = self
-                    .context
-                    .delay
-                    .delay_ticks_from_last(half_period_ticks, last);
+                last = self.wait_half_period(last);
             }
             bits -= frame_bits;
         }
@@ -461,9 +464,14 @@ impl Jtag {
     /// Write-only JTAG transfer without capturing TDO.
     ///
     /// Writes `n` bits from successive bytes of `tdi`, LSbit first.
+    ///
+    /// <----- bits of byte are transmitted in this order
+    /// ----------------------------------------------------> bytes are transmitted in this order
+    /// 8......0 8......0 8......0 8......0 8......0 8......0 8......0 8......0
+    /// 01010101 10101010 01010101 10101010 01010101 10101010 01010101 10101010
+    ///
     #[inline(never)]
     fn transfer_wo(&self, n: usize, tdi: &[u8]) {
-        let half_period_ticks = self.context.half_period_ticks;
         let mut last = self.context.delay.get_current();
 
         for (byte_idx, byte) in tdi.iter().enumerate() {
@@ -475,15 +483,9 @@ impl Jtag {
 
                 // Set TDI and toggle TCK.
                 self.pins.tdi.set_bool(byte & (1 << bit_idx) != 0);
-                last = self
-                    .context
-                    .delay
-                    .delay_ticks_from_last(half_period_ticks, last);
+                last = self.wait_half_period(last);
                 self.pins.tck.set_high();
-                last = self
-                    .context
-                    .delay
-                    .delay_ticks_from_last(half_period_ticks, last);
+                last = self.wait_half_period(last);
                 self.pins.tck.set_low();
             }
         }
@@ -495,7 +497,6 @@ impl Jtag {
     /// Captures `n` bits from TDO and writes into successive bytes of `tdo`, LSbit first.
     #[inline(never)]
     fn transfer_rw(&self, n: usize, tdi: &[u8], tdo: &mut [u8]) {
-        let half_period_ticks = self.context.half_period_ticks;
         let mut last = self.context.delay.get_current();
 
         for (byte_idx, (tdi, tdo)) in tdi.iter().zip(tdo.iter_mut()).enumerate() {
@@ -510,15 +511,9 @@ impl Jtag {
                 // by the target, and we sample TDO immediately before the clock falling edge
                 // where it is updated by the target.
                 self.pins.tdi.set_bool(tdi & (1 << bit_idx) != 0);
-                last = self
-                    .context
-                    .delay
-                    .delay_ticks_from_last(half_period_ticks, last);
+                last = self.wait_half_period(last);
                 self.pins.tck.set_high();
-                last = self
-                    .context
-                    .delay
-                    .delay_ticks_from_last(half_period_ticks, last);
+                last = self.wait_half_period(last);
                 if self.pins.tdo.is_high()? {
                     *tdo |= 1 << bit_idx;
                 }
@@ -532,6 +527,10 @@ impl Jtag {
         (bits + 7) / 8
     }
 }
+
+//=======================================================================================
+// SWD interface
+//=======================================================================================
 
 #[derive(Debug, defmt::Format)]
 pub struct Swd {
@@ -679,6 +678,12 @@ impl swd::Swd<Context> for Swd {
 }
 
 impl Swd {
+    fn wait_half_period(&self, last: u32) -> u32 {
+        self.context
+            .delay
+            .delay_ticks_from_last(self.context.half_period_ticks, last)
+    }
+
     fn tx8(&mut self, mut data: u8) {
         self.context.swdio_to_output();
 
@@ -754,35 +759,22 @@ impl Swd {
             self.pins.swdio.set_low();
         }
 
-        let half_period_ticks = self.context.half_period_ticks;
-
         self.pins.swclk.set_low();
-        *last = self
-            .context
-            .delay
-            .delay_ticks_from_last(half_period_ticks, *last);
+        *last = self.wait_half_period(*last);
+
         self.pins.swclk.set_high();
-        *last = self
-            .context
-            .delay
-            .delay_ticks_from_last(half_period_ticks, *last);
+        *last = self.wait_half_period(*last);
     }
 
     #[inline(always)]
     fn read_bit(&mut self, last: &mut u32) -> u8 {
-        let half_period_ticks = self.context.half_period_ticks;
-
         self.pins.swclk.set_low();
-        *last = self
-            .context
-            .delay
-            .delay_ticks_from_last(half_period_ticks, *last);
+        *last = self.wait_half_period(*last);
+
         let bit = self.pins.swdio.is_high() as u8;
+
         self.pins.swclk.set_high();
-        *last = self
-            .context
-            .delay
-            .delay_ticks_from_last(half_period_ticks, *last);
+        *last = self.wait_half_period(*last);
 
         bit
     }
