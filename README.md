@@ -51,6 +51,6 @@ You may have to change `XTASK_SERIAL`, and on non-x86 linux platforms, you must 
 
 ## Feature TODO list
 
-- [ ] Add support for JTAG (only SWD works right now)
+- [x] Add support for JTAG (only SWD works right now)
 - [ ] Add support for SWO
 - [ ] Add support for VCP (it enumerates now, but ignores all data)

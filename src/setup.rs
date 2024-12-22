@@ -206,9 +206,9 @@ pub fn setup(
     );
 
     // target_power.enable_vtgt();
-    target_power.set_vtgt(1800);
+    target_power.set_vtgt(1800); // Power the target with 1.8v
 
-    cortex_m::asm::delay(1_000_000);
+    cortex_m::asm::delay(1_000_000); // Let it settle
 
     //                     +-----------------+
     //          VCC        |  1 *       * 2  | SWDIO  /TMS  -- GPIO10

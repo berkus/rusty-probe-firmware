@@ -436,6 +436,7 @@ impl jtag::Jtag<Context> for Jtag {
 }
 
 impl Jtag {
+    #[inline(always)]
     fn wait_half_period(&self, last: u32) -> u32 {
         self.context
             .delay
