@@ -1,24 +1,27 @@
 # build default configuration
-build: deps-up build-bin make-uf2
+build: build-bin make-uf2
+    ls -la app.uf2
+
+alias b := build
 
 # build binary without logging
-build-bin:
+build-bin: flip-link
     DEFMT_LOG=off cargo build --release --bin app
 
 # run binary with logging
-run-bin-defmt SERIAL='/dev/ttyACM0':
-    echo "Taking control on {{ SERIAL }}"
+run-bin-defmt SERIAL='/dev/ttyACM0': flip-link defmt-print
     XTASK_SERIAL={{ SERIAL }} XTASK_DEFMT_VERBOSE=true DEFMT_LOG=trace cargo rrb-usb app
 
 # convert binary to uf2
-make-uf2:
+make-uf2: elf2uf2
     elf2uf2-rs target/thumbv6m-none-eabi/release/app app
-    ls -la app.uf2
 
-# install build dependencies, if not installed
-deps-up:
+defmt-print:
+    @defmt-print --help > /dev/null || cargo install defmt-print
+
+elf2uf2:
     @elf2uf2-rs --help > /dev/null || cargo install elf2uf2-rs
-    cargo install flip-link
-    cargo install defmt-print
 
-alias b := build
+flip-link:
+    # someday knurling folks will autorelease new flip-link with --help arg support
+    @which flip-link || cargo install flip-link
