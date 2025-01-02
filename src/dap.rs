@@ -1,5 +1,5 @@
 use crate::{
-    setup::{DirSwclkPin, DirSwdioPin, ResetPin, SwclkPin, SwdioPin, TdiPin, TdoSwoPin},
+    setup::{DirSwclkPin, DirSwdioPin, ResetPin, SwclkTckPin, SwdioTmsPin, TdiPin, TdoSwoPin},
     systick_delay::Delay,
 };
 use dap_rs::{swj::Dependencies, *};
@@ -17,8 +17,8 @@ pub struct Context {
     cycles_per_us: u32,
     half_period_ticks: u32,
     delay: &'static Delay,
-    swdio_tms: SwdioPin, // Shared by SWD and JTAG
-    swclk_tck: SwclkPin, // Shared by SWD and JTAG
+    swdio_tms: SwdioTmsPin, // Shared by SWD and JTAG
+    swclk_tck: SwclkTckPin, // Shared by SWD and JTAG
     tdo: TdoSwoPin,
     tdi: TdiPin,
     nreset: ResetPin, // Shared by SWD and JTAG
@@ -99,7 +99,7 @@ impl Context {
     }
 
     fn swdio_to_output(&mut self) {
-        defmt::trace!("SWDIO -> output");
+        defmt::trace!("SWDIO/TMS -> output");
         self.swdio_tms.into_output_in_state(PinState::High);
         self.dir_swdio.set_high().ok();
     }
@@ -111,14 +111,14 @@ impl Context {
     }
 
     fn swclk_to_output(&mut self) {
-        defmt::trace!("SWCLK -> output");
+        defmt::trace!("SWCLK/TCK -> output");
         self.swclk_tck.into_output_in_state(PinState::High);
         self.dir_swclk.set_high().ok();
     }
 
     fn from_pins(
-        swdio: SwdioPin,
-        swclk: SwclkPin,
+        swdio: SwdioTmsPin,
+        swclk: SwclkTckPin,
         tdi: TdiPin,
         tdo: TdoSwoPin,
         nreset: ResetPin,
@@ -287,7 +287,14 @@ impl From<Jtag> for Context {
 }
 
 impl From<Context> for Jtag {
-    fn from(value: Context) -> Self {
+    fn from(mut value: Context) -> Self {
+        value.swdio_to_output();
+        value.swclk_to_output();
+        value.tdo.into_input();
+        value.tdi.into_output_in_state(PinState::High);
+        value.nreset.into_output_in_state(PinState::High);
+        trace!("Context to JTAG");
+
         Self { context: value }
     }
 }
@@ -316,6 +323,7 @@ impl jtag::Jtag<Context> for Jtag {
     ///
     /// Returns the number of bytes of rxbuf which were written to.
     fn sequences(&mut self, data: &[u8], rxbuf: &mut [u8]) -> u32 {
+        trace!("JTAG sequences");
         // Read request header containing number of sequences.
         if data.is_empty() {
             return 0;
@@ -395,7 +403,7 @@ impl jtag::Jtag<Context> for Jtag {
             // Read header byte for this sequence.
             if data.is_empty() {
                 break;
-            };
+            }
             let header = data[0];
             data = &data[1..];
             let capture = header & 0b1000_0000;
@@ -405,7 +413,7 @@ impl jtag::Jtag<Context> for Jtag {
             let nbytes = Self::bytes_for_bits(nbits);
             if data.len() < nbytes {
                 break;
-            };
+            }
 
             // Split data into TDI data for this sequence and data for remaining sequences.
             let tdi = &data[..nbytes];
@@ -431,6 +439,7 @@ impl jtag::Jtag<Context> for Jtag {
     }
 
     fn set_clock(&mut self, max_frequency: u32) -> bool {
+        trace!("JTAG set clock {}", max_frequency);
         self.context.process_swj_clock(max_frequency)
     }
 }
@@ -444,8 +453,9 @@ impl Jtag {
     }
 
     /// Send a sequence of TMS bits.
+    #[allow(dead_code)]
     #[inline(never)]
-    pub fn tms_sequence(&mut self, data: &[u8], mut bits: usize) {
+    fn tms_sequence(&mut self, data: &[u8], mut bits: usize) {
         // self.bitbang_mode();
 
         let mut last = self.context.delay.get_current();
@@ -866,10 +876,10 @@ impl DelayNs for Wait {
 #[inline(always)]
 pub fn create_dap(
     version_string: &'static str,
-    swdio: SwdioPin,
-    swclk: SwclkPin,
+    swdio_tms: SwdioTmsPin,
+    swclk_tck: SwclkTckPin,
     tdi: TdiPin,
-    tdo: TdoSwoPin,
+    swo_tdo: TdoSwoPin,
     nreset: ResetPin,
     dir_swdio: DirSwdioPin,
     dir_swclk: DirSwclkPin,
@@ -878,10 +888,10 @@ pub fn create_dap(
     leds: crate::leds::HostStatusToken,
 ) -> crate::setup::DapHandler {
     let context = Context::from_pins(
-        swdio,
-        swclk,
+        swdio_tms,
+        swclk_tck,
         tdi,
-        tdo,
+        swo_tdo,
         nreset,
         dir_swdio,
         dir_swclk,

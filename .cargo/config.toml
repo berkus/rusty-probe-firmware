@@ -15,16 +15,22 @@
 runner = "cargo xtask --target aarch64-apple-darwin debug --defmt-print"
 
 rustflags = [
-  "-C", "linker=flip-link",
-  "-C", "link-arg=--nmagic",
-  "-C", "link-arg=-Tlink.x",
-  "-C", "link-arg=-Tdefmt.x",
+    "-C",
+    "linker=flip-link",
+    "-C",
+    "link-arg=--nmagic",
+    "-C",
+    "link-arg=-Tlink.x",
+    "-C",
+    "link-arg=-Tdefmt.x",
 
-  # Code-size optimizations.
-  #   trap unreachable can save a lot of space, but requires nightly compiler.
-  #   uncomment the next line if you wish to enable it
-  "-Z", "trap-unreachable=no",
-  "-C", "no-vectorize-loops",
+    # Code-size optimizations.
+    #   trap unreachable can save a lot of space, but requires nightly compiler.
+    #   uncomment the next line if you wish to enable it
+    "-Z",
+    "trap-unreachable=no",
+    "-C",
+    "no-vectorize-loops",
 ]
 
 [build]
@@ -36,6 +42,6 @@ DEFMT_LOG = "trace"
 [alias]
 rrb = "run --release --bin"
 brb = "build --release --bin"
-rrb-usb = "run --release --no-default-features --features defmt-bbq,usb-serial-reboot --bin"
+rrb-usb = "run --release --no-default-features --features defmt-bbq,gnddetect,usb-serial-reboot --bin"
 run-usb = "rrb-usb app"
 xtask = "run --release --manifest-path xtask/Cargo.toml"

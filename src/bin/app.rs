@@ -48,6 +48,10 @@ mod app {
         #[cfg(feature = "defmt-bbq")]
         log_pump::spawn().ok();
 
+        heartbeat::spawn().ok();
+
+        // defmt::info!("rusty-probe-firmware started");
+
         led_driver::spawn(leds).ok();
 
         (
@@ -84,7 +88,7 @@ mod app {
                 }
             }
 
-            defmt::trace!("Tracking Target VCC at {} mV", target_vcc_mv);
+            // defmt::trace!("Tracking Target VCC at {} mV", target_vcc_mv);
 
             if target_vcc_mv > 2500 {
                 LedManager::set_current_vtarget(Some(Vtarget::Voltage3V3));
@@ -109,7 +113,15 @@ mod app {
             ctx.shared
                 .probe_usb
                 .lock(|probe_usb| probe_usb.flush_logs());
-            Mono::delay(100.millis()).await;
+            Mono::delay(1.millis()).await;
+        }
+    }
+
+    #[task(shared = [probe_usb])]
+    async fn heartbeat(_ctx: heartbeat::Context) {
+        loop {
+            defmt::trace!("Heartbeat");
+            Mono::delay(1000.millis()).await;
         }
     }
 
@@ -125,6 +137,7 @@ mod app {
 
                 match request {
                     Request::DAP1Command((report, n)) => {
+                        defmt::info!("Got USB DAPv1 command");
                         let len = dap.process_command(&report[..n], resp_buf, DapVersion::V1);
 
                         if len > 0 {
@@ -132,6 +145,7 @@ mod app {
                         }
                     }
                     Request::DAP2Command((report, n)) => {
+                        defmt::info!("Got USB DAPv2 command");
                         let len = dap.process_command(&report[..n], resp_buf, DapVersion::V2);
 
                         if len > 0 {

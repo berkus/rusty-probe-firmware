@@ -7,7 +7,8 @@ build-bin:
 
 # run binary with logging
 run-bin-defmt SERIAL='/dev/ttyACM0':
-    XTASK_SERIAL={{ SERIAL }} DEFMT_LOG=debug cargo rrb-usb app
+    echo "Taking control on {{ SERIAL }}"
+    XTASK_SERIAL={{ SERIAL }} XTASK_DEFMT_VERBOSE=true DEFMT_LOG=trace cargo rrb-usb app
 
 # convert binary to uf2
 make-uf2:

@@ -2,7 +2,6 @@ use dap_rs::{
     usb::{dap_v1::CmsisDapV1, dap_v2::CmsisDapV2, winusb::MicrosoftDescriptors, Request},
     usb_device::{class_prelude::*, prelude::*},
 };
-use defmt::*;
 use rp2040_hal::usb::UsbBus;
 use usbd_serial::SerialPort;
 
@@ -32,7 +31,7 @@ impl ProbeUsb {
         let serial = SerialPort::new(&usb_bus);
 
         let id = crate::device_signature::device_id_hex();
-        info!("Device ID: {}", id);
+        defmt::info!("Device ID: {}", id);
 
         let descriptors = StringDescriptors::new(LangID::EN)
             .manufacturer("Probe-rs development team")
@@ -91,8 +90,11 @@ impl ProbeUsb {
             self.device_state = new_state;
 
             if (old_state != new_state) && (new_state != UsbDeviceState::Configured) {
+                defmt::trace!("Low-level USB - SUSPENDING");
                 return Some(Request::Suspend);
             }
+
+            // defmt::trace!("Low-level USB interrupt");
 
             // Discard data from the serial interface
             let mut buf = [0; 64 as usize];
@@ -107,11 +109,15 @@ impl ProbeUsb {
 
             let r = self.dap_v1.process();
             if r.is_some() {
+                // defmt::trace!("Low-level USB interrupt brought us dap_v1 command");
                 return r;
             }
 
             let r = self.dap_v2.process();
             if r.is_some() {
+                // defmt::trace!(
+                //     "Low-level USB interrupt brought us dap_v2 command" // w/ len {}", r.unwrap().1
+                // );
                 return r;
             }
         }

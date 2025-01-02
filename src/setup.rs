@@ -46,8 +46,8 @@ pub type EnableVTargetPin = Pin<Gpio6, FunctionSioOutput, PullDown>;
 pub type Enable5VPin = Pin<Gpio7, FunctionSioOutput, PullDown>;
 pub type GndDetectPin = Pin<Gpio8, FunctionSioInput, PullUp>;
 pub type ResetPin = DynPin<Gpio9, PullNone>;
-pub type SwdioPin = DynPin<Gpio10, PullDown>;
-pub type SwclkPin = DynPin<Gpio11, PullDown>;
+pub type SwdioTmsPin = DynPin<Gpio10, PullDown>;
+pub type SwclkTckPin = DynPin<Gpio11, PullDown>;
 pub type DirSwdioPin = Pin<Gpio12, FunctionSioOutput, PullNone>;
 pub type TdoSwoPin = DynPin<Gpio16, PullDown>;
 pub type TdiPin = DynPin<Gpio17, PullDown>;
@@ -218,7 +218,7 @@ pub fn setup(
     // GPIO8 -- GNDDetect  |  9 *       * 10 | nRESET       -- GPIO9
     //                     +-----------------+
 
-    let mut io = pins.gpio10;
+    let mut io_tms = pins.gpio10;
     let mut ck = pins.gpio11;
     let mut dir_io = pins.gpio12;
     let mut dir_ck = pins.gpio19;
@@ -237,8 +237,8 @@ pub fn setup(
     let _dir_vcp_tx = pins.gpio24;
 
     // High speed IO
-    io.set_drive_strength(OutputDriveStrength::TwelveMilliAmps);
-    io.set_slew_rate(OutputSlewRate::Fast);
+    io_tms.set_drive_strength(OutputDriveStrength::TwelveMilliAmps);
+    io_tms.set_slew_rate(OutputSlewRate::Fast);
     ck.set_drive_strength(OutputDriveStrength::TwelveMilliAmps);
     ck.set_slew_rate(OutputSlewRate::Fast);
     dir_io.set_drive_strength(OutputDriveStrength::TwelveMilliAmps);
@@ -256,10 +256,10 @@ pub fn setup(
 
     let dap_hander = dap::create_dap(
         git_version,
-        DynPin::Input(io.into_pull_down_input()),
+        DynPin::Input(io_tms.into_pull_down_input()),
         DynPin::Input(ck.into_pull_down_input()),
-        DynPin::Input(tdi.into_pull_down_input()),
-        DynPin::Output(tdo_swo.into_push_pull_output()),
+        DynPin::Output(tdi.into_push_pull_output()),
+        DynPin::Input(tdo_swo.into_pull_down_input()),
         DynPin::Input(reset.into_floating_input()),
         dir_io.into_push_pull_output().into_pull_type(),
         dir_ck.into_push_pull_output().into_pull_type(),
@@ -334,7 +334,7 @@ where
     /// Note: This function panics if the pin is in the wrong mode.
     pub fn set_high(&mut self) {
         match self {
-            DynPin::Input(_) => defmt::panic!("Output operation on input pin"),
+            DynPin::Input(pin) => core::panic!("Output operation on input pin {:?}", pin.id()),
             DynPin::Output(o) => {
                 o.set_high().ok();
             }
@@ -344,7 +344,7 @@ where
     /// Note: This function panics if the pin is in the wrong mode.
     pub fn set_low(&mut self) {
         match self {
-            DynPin::Input(_) => defmt::panic!("Output operation on input pin"),
+            DynPin::Input(pin) => core::panic!("Output operation on input pin {:?}", pin.id()),
             DynPin::Output(o) => {
                 o.set_low().ok();
             }
@@ -361,8 +361,8 @@ where
 }
 
 pub struct AllIOs {
-    pub io: SwdioPin,
-    pub ck: SwclkPin,
+    pub io: SwdioTmsPin,
+    pub ck: SwclkTckPin,
     pub tdi: TdiPin,
     pub tdo_swo: TdoSwoPin,
     pub reset: ResetPin,

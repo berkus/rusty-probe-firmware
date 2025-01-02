@@ -1,0 +1,12 @@
+[
+  {
+    "label": "build binary pico-probe",
+    "command": "cargo brb app",
+    "env": { "DEFMT_LOG": "off" }
+  },
+  {
+    "label": "run binary pico-probe",
+    "command": "cargo rrb app",
+    "env": { "DEFMT_LOG": "off" }
+  }
+]
