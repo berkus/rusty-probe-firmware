@@ -226,10 +226,12 @@ pub fn setup(
     let gnd_detect = pins.gpio8.into_pull_up_input();
 
     let tdo_swo = pins.gpio16;
-    let _dir_tdo_swo = pins.gpio22;
+    let dir_tdo_swo = pins.gpio22;
+    dir_tdo_swo.into_push_pull_output_in_state(PinState::High); // Input
 
     let tdi = pins.gpio17;
-    let _dir_tdi = pins.gpio23;
+    let dir_tdi = pins.gpio23;
+    dir_tdi.into_push_pull_output_in_state(PinState::Low); // Output
 
     let _vcp_rx = pins.gpio21;
     let _vcp_tx = pins.gpio20;
