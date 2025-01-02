@@ -1,5 +1,8 @@
 use crate::{
-    setup::{DirSwclkPin, DirSwdioPin, ResetPin, SwclkTckPin, SwdioTmsPin, TdiPin, TdoSwoPin},
+    setup::{
+        DirSwclkPin, DirSwdioPin, DirTdiPin, DirTdoSwoPin, ResetPin, SwclkTckPin, SwdioTmsPin,
+        TdiPin, TdoSwoPin,
+    },
     systick_delay::Delay,
 };
 use dap_rs::{swj::Dependencies, *};
@@ -24,6 +27,8 @@ pub struct Context {
     nreset: ResetPin, // Shared by SWD and JTAG
     dir_swdio: DirSwdioPin,
     dir_swclk: DirSwclkPin,
+    dir_tdo: DirTdoSwoPin,
+    dir_tdi: DirTdiPin,
 }
 
 // struct JtagPins<'ctx> {
@@ -99,7 +104,7 @@ impl Context {
     }
 
     fn swdio_to_output(&mut self) {
-        defmt::trace!("SWDIO/TMS -> output");
+        defmt::trace!("SWDIO -> output");
         self.swdio_tms.into_output_in_state(PinState::High);
         self.dir_swdio.set_high().ok();
     }
@@ -111,7 +116,7 @@ impl Context {
     }
 
     fn swclk_to_output(&mut self) {
-        defmt::trace!("SWCLK/TCK -> output");
+        defmt::trace!("SWCLK -> output");
         self.swclk_tck.into_output_in_state(PinState::High);
         self.dir_swclk.set_high().ok();
     }
@@ -124,13 +129,19 @@ impl Context {
         nreset: ResetPin,
         mut dir_swdio: DirSwdioPin,
         mut dir_swclk: DirSwclkPin,
+        mut dir_tdo: DirTdoSwoPin,
+        mut dir_tdi: DirTdiPin,
         cpu_frequency: u32,
         delay: &'static Delay,
     ) -> Self {
         dir_swdio.set_low().ok();
+        defmt::trace!("SWDIO -> input");
         dir_swclk.set_low().ok();
         defmt::trace!("SWCLK -> input");
-        defmt::trace!("SWDIO -> input");
+        dir_tdo.set_low().ok();
+        defmt::trace!("TDO -> input");
+        dir_tdi.set_high().ok();
+        defmt::trace!("TDI -> output");
 
         let max_frequency = 100_000;
         let half_period_ticks = cpu_frequency / max_frequency / 2;
@@ -147,6 +158,8 @@ impl Context {
             nreset,
             dir_swdio,
             dir_swclk,
+            dir_tdo,
+            dir_tdi,
         }
     }
 }
@@ -282,18 +295,33 @@ pub struct Jtag {
 
 impl From<Jtag> for Context {
     fn from(value: Jtag) -> Self {
+        defmt::trace!("JTAG back to Context");
         value.context
     }
 }
 
 impl From<Context> for Jtag {
     fn from(mut value: Context) -> Self {
-        value.swdio_to_output();
-        value.swclk_to_output();
-        value.tdo.into_input();
-        value.tdi.into_output_in_state(PinState::High);
+        defmt::trace!("Context to JTAG");
+        defmt::trace!("TMS -> output, pull low");
+        value.swdio_tms.into_output_in_state(PinState::Low);
+        value.dir_swdio.set_high().ok();
+
+        defmt::trace!("TCK -> output, pull low");
+        value.swclk_tck.into_output_in_state(PinState::Low);
+        value.dir_swclk.set_high().ok();
+
+        // fn bitbang_mode(&self) {
+        //     self.pins.tdo.set_mode_input();
+        //     self.pins.tdi.set_mode_output();
+        //     self.pins.tck.set_low().set_mode_output();
+        // }
+
+        defmt::trace!("TDO -> input, pull high");
+        // value.tdo.into_pull_up_input();
+        defmt::trace!("TDI -> output, pull high");
+        // let tdi = value.tdi.into_push_pull_output();
         value.nreset.into_output_in_state(PinState::High);
-        trace!("Context to JTAG");
 
         Self { context: value }
     }
@@ -522,6 +550,8 @@ impl Jtag {
     /// Captures `n` bits from TDO and writes into successive bytes of `tdo`, LSbit first.
     #[inline(never)]
     fn transfer_rw(&mut self, n: usize, tdi: &[u8], tdo: &mut [u8]) {
+        use embedded_hal::digital::InputPin;
+
         let mut last = self.context.delay.get_current();
 
         for (byte_idx, (tdi, tdo)) in tdi.iter().zip(tdo.iter_mut()).enumerate() {
@@ -543,7 +573,7 @@ impl Jtag {
                 last = self.wait_half_period(last);
                 self.context.swclk_tck.set_high();
                 last = self.wait_half_period(last);
-                if self.context.tdo.is_high() {
+                if self.context.tdo.is_high().expect("the unexpected") {
                     *tdo |= 1 << bit_idx;
                 }
                 self.context.swclk_tck.set_low();
@@ -883,6 +913,8 @@ pub fn create_dap(
     nreset: ResetPin,
     dir_swdio: DirSwdioPin,
     dir_swclk: DirSwclkPin,
+    dir_tdo: DirTdoSwoPin,
+    dir_tdi: DirTdiPin,
     cpu_frequency: u32,
     delay: &'static Delay,
     leds: crate::leds::HostStatusToken,
@@ -895,6 +927,8 @@ pub fn create_dap(
         nreset,
         dir_swdio,
         dir_swclk,
+        dir_tdo,
+        dir_tdi,
         cpu_frequency,
         delay,
     );

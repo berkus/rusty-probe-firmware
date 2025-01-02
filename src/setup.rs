@@ -18,8 +18,8 @@ use rp2040_hal::{
     clocks::init_clocks_and_plls,
     gpio::{
         bank0::{
-            Gpio0, Gpio10, Gpio11, Gpio12, Gpio16, Gpio17, Gpio19, Gpio20, Gpio21, Gpio26, Gpio27,
-            Gpio28, Gpio29, Gpio3, Gpio5, Gpio6, Gpio7, Gpio8, Gpio9,
+            Gpio0, Gpio10, Gpio11, Gpio12, Gpio16, Gpio17, Gpio19, Gpio20, Gpio21, Gpio22, Gpio23,
+            Gpio26, Gpio27, Gpio28, Gpio29, Gpio3, Gpio5, Gpio6, Gpio7, Gpio8, Gpio9,
         },
         FunctionSio, FunctionSioInput, FunctionSioOutput, OutputDriveStrength, OutputSlewRate, Pin,
         PinId, PinState, Pins, PullDown, PullNone, PullType, PullUp, SioInput, SioOutput,
@@ -49,11 +49,13 @@ pub type ResetPin = DynPin<Gpio9, PullNone>;
 pub type SwdioTmsPin = DynPin<Gpio10, PullDown>;
 pub type SwclkTckPin = DynPin<Gpio11, PullDown>;
 pub type DirSwdioPin = Pin<Gpio12, FunctionSioOutput, PullNone>;
-pub type TdoSwoPin = DynPin<Gpio16, PullDown>;
-pub type TdiPin = DynPin<Gpio17, PullDown>;
+pub type TdoSwoPin = Pin<Gpio16, FunctionSioInput, PullDown>;
+pub type TdiPin = Pin<Gpio17, FunctionSioOutput, PullDown>;
 pub type DirSwclkPin = Pin<Gpio19, FunctionSioOutput, PullNone>;
 pub type VcpTxPin = DynPin<Gpio20, PullUp>;
 pub type VcpRxPin = DynPin<Gpio21, PullUp>;
+pub type DirTdoSwoPin = Pin<Gpio22, FunctionSioOutput, PullNone>;
+pub type DirTdiPin = Pin<Gpio23, FunctionSioOutput, PullNone>;
 pub type VTargetAdcPin = AdcPin<Pin<Gpio26, FunctionSio<SioInput>, PullNone>>;
 pub type LedGreenPin = Pin<Gpio27, FunctionSio<SioOutput>, PullDown>;
 pub type LedRedPin = Pin<Gpio28, FunctionSio<SioOutput>, PullDown>;
@@ -225,13 +227,11 @@ pub fn setup(
     let reset = pins.gpio9;
     let gnd_detect = pins.gpio8.into_pull_up_input();
 
-    let tdo_swo = pins.gpio16;
-    let dir_tdo_swo = pins.gpio22;
-    dir_tdo_swo.into_push_pull_output_in_state(PinState::High); // Input
+    let mut tdo_swo = pins.gpio16;
+    let mut dir_tdo_swo = pins.gpio22;
 
-    let tdi = pins.gpio17;
-    let dir_tdi = pins.gpio23;
-    dir_tdi.into_push_pull_output_in_state(PinState::Low); // Output
+    let mut tdi = pins.gpio17;
+    let mut dir_tdi = pins.gpio23;
 
     let _vcp_rx = pins.gpio21;
     let _vcp_tx = pins.gpio20;
@@ -243,10 +243,19 @@ pub fn setup(
     io_tms.set_slew_rate(OutputSlewRate::Fast);
     ck.set_drive_strength(OutputDriveStrength::TwelveMilliAmps);
     ck.set_slew_rate(OutputSlewRate::Fast);
+    tdi.set_drive_strength(OutputDriveStrength::TwelveMilliAmps);
+    tdi.set_slew_rate(OutputSlewRate::Fast);
+    tdo_swo.set_drive_strength(OutputDriveStrength::TwelveMilliAmps);
+    tdo_swo.set_slew_rate(OutputSlewRate::Fast);
     dir_io.set_drive_strength(OutputDriveStrength::TwelveMilliAmps);
     dir_io.set_slew_rate(OutputSlewRate::Fast);
     dir_ck.set_drive_strength(OutputDriveStrength::TwelveMilliAmps);
     dir_ck.set_slew_rate(OutputSlewRate::Fast);
+    // These two actually never change
+    dir_tdo_swo.set_drive_strength(OutputDriveStrength::TwelveMilliAmps);
+    dir_tdo_swo.set_slew_rate(OutputSlewRate::Fast);
+    dir_tdi.set_drive_strength(OutputDriveStrength::TwelveMilliAmps);
+    dir_tdi.set_slew_rate(OutputSlewRate::Fast);
 
     let git_version: &'static str = git_version::git_version!();
     let delay = delay.write(Delay::new(core.SYST, clocks.system_clock.freq().raw()));
@@ -260,11 +269,13 @@ pub fn setup(
         git_version,
         DynPin::Input(io_tms.into_pull_down_input()),
         DynPin::Input(ck.into_pull_down_input()),
-        DynPin::Output(tdi.into_push_pull_output()),
-        DynPin::Input(tdo_swo.into_pull_down_input()),
+        tdi.into_push_pull_output(),
+        tdo_swo.into_pull_down_input(),
         DynPin::Input(reset.into_floating_input()),
         dir_io.into_push_pull_output().into_pull_type(),
         dir_ck.into_push_pull_output().into_pull_type(),
+        dir_tdo_swo.into_push_pull_output().into_pull_type(), // Input
+        dir_tdi.into_push_pull_output().into_pull_type(),     // Output
         clocks.system_clock.freq().raw(),
         delay,
         host_status_token,
