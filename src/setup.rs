@@ -254,7 +254,7 @@ pub fn setup(
     let host_status_token = led_manager.host_status_token();
     let target_physically_connected = TargetPhysicallyConnected { pin: gnd_detect };
 
-    let dap_hander = dap::create_dap(
+    let dap_handler = dap::create_dap(
         git_version,
         DynPin::Input(io_tms.into_pull_down_input()),
         DynPin::Input(ck.into_pull_down_input()),
@@ -273,7 +273,7 @@ pub fn setup(
     (
         led_manager,
         probe_usb,
-        dap_hander,
+        dap_handler,
         adc,
         translator_power,
         target_power,
