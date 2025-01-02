@@ -147,6 +147,7 @@ mod app {
                     Request::DAP2Command((report, n)) => {
                         defmt::info!("Got USB DAPv2 command");
                         let len = dap.process_command(&report[..n], resp_buf, DapVersion::V2);
+                        defmt::info!("... sending {} bytes reply", len);
 
                         if len > 0 {
                             probe_usb.dap2_reply(&resp_buf[..len]);
