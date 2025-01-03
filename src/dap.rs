@@ -290,6 +290,7 @@ impl swj::Dependencies<Swd, Jtag> for Context {
 
 pub struct Jtag {
     context: Context,
+    taps: crate::taps::Taps,
     // pins: &'ctx JtagPins,
 }
 
@@ -323,7 +324,10 @@ impl From<Context> for Jtag {
         // let tdi = value.tdi.into_push_pull_output();
         value.nreset.into_output_in_state(PinState::High);
 
-        Self { context: value }
+        Self {
+            context: value,
+            taps: crate::taps::Taps::default(),
+        }
     }
 }
 
@@ -469,6 +473,14 @@ impl jtag::Jtag<Context> for Jtag {
     fn set_clock(&mut self, max_frequency: u32) -> bool {
         trace!("JTAG set clock {}", max_frequency);
         self.context.process_swj_clock(max_frequency)
+    }
+
+    type Error = ();
+
+    fn configure_taps(&mut self, req: &[u8]) -> Result<(), Self::Error> {
+        let chain_count = req[0];
+        self.taps.setup(chain_count.into(), &req[1..]);
+        Ok(())
     }
 }
 

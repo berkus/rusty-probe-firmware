@@ -1,7 +1,11 @@
+- DebugProbe::select_jtag_tap()
+- ChainParams::from_jtag_chain()
+
+---
+
 impl<Probe: DebugProbe + RawJtagIo + 'static> JTAGAccess for Probe {
     fn scan_chain(&mut self) -> Result<(), DebugProbeError> {
 
-DebugProbe::select_jtag_tap()
 DebugProbe::has_arm_interface()
 DebugProbe::try_as_dap_probe()
 
@@ -20,7 +24,5 @@ pub struct JtagChainItem {
     /// The length of the instruction register.
     pub irlen: usize,
 }
-
-ChainParams::from_jtag_chain()
 
 JTAGAccess?::write_register() -- missing for ARM JTAG?

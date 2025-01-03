@@ -9,11 +9,13 @@ use setup::Mono;
 
 pub mod dap;
 pub mod device_signature;
+mod jtag;
 pub mod leds;
 mod panic;
 pub mod pio;
 pub mod setup;
 pub mod systick_delay;
+mod taps;
 pub mod usb;
 
 defmt::timestamp! {"{=u64:us}", {
