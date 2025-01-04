@@ -474,14 +474,6 @@ impl jtag::Jtag<Context> for Jtag {
         trace!("JTAG set clock {}", max_frequency);
         self.context.process_swj_clock(max_frequency)
     }
-
-    type Error = ();
-
-    fn configure_taps(&mut self, req: &[u8]) -> Result<(), Self::Error> {
-        let chain_count = req[0];
-        self.taps.setup(chain_count.into(), &req[1..]);
-        Ok(())
-    }
 }
 
 impl Jtag {
