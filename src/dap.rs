@@ -544,9 +544,9 @@ impl Jtag {
 
                 // Set TDI and toggle TCK.
                 if byte & (1 << bit_idx) != 0 {
-                    self.context.tdi.set_high();
+                    let _ = self.context.tdi.set_high();
                 } else {
-                    self.context.tdi.set_low();
+                    let _ = self.context.tdi.set_low();
                 }
                 last = self.wait_half_period(last);
                 self.context.swclk_tck.set_high();
@@ -578,9 +578,9 @@ impl Jtag {
                 // by the target, and we sample TDO immediately before the clock falling edge
                 // where it is updated by the target.
                 if tdi & (1 << bit_idx) != 0 {
-                    self.context.tdi.set_high();
+                    let _ = self.context.tdi.set_high();
                 } else {
-                    self.context.tdi.set_low();
+                    let _ = self.context.tdi.set_low();
                 }
                 last = self.wait_half_period(last);
                 self.context.swclk_tck.set_high();
