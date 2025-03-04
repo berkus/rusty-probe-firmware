@@ -290,7 +290,7 @@ impl swj::Dependencies<Swd, Jtag> for Context {
 
 pub struct Jtag {
     context: Context,
-    taps: crate::taps::Taps,
+    // taps: crate::taps::Taps,
     // pins: &'ctx JtagPins,
 }
 
@@ -326,7 +326,7 @@ impl From<Context> for Jtag {
 
         Self {
             context: value,
-            taps: crate::taps::Taps::default(),
+            // taps: crate::taps::Taps::default(),
         }
     }
 }
@@ -479,7 +479,7 @@ impl jtag::Jtag<Context> for Jtag {
 
     fn configure_taps(&mut self, req: &[u8]) -> Result<(), Self::Error> {
         let chain_count = req[0];
-        self.taps.setup(chain_count.into(), &req[1..]);
+        // self.taps.setup(chain_count.into(), &req[1..]);
         Ok(())
     }
 }
@@ -628,9 +628,7 @@ impl From<Context> for Swd {
     }
 }
 
-impl swd::Swd<Context> for Swd {
-    const AVAILABLE: bool = true;
-
+impl adi::ArmDebugInterface for Swd {
     fn read_inner(&mut self, apndp: swd::APnDP, a: swd::DPRegister) -> swd::Result<u32> {
         trace!("SWD read, apndp: {}, addr: {}", apndp, a,);
         // Send request
@@ -709,6 +707,10 @@ impl swd::Swd<Context> for Swd {
 
         Ok(())
     }
+}
+
+impl swd::Swd<Context> for Swd {
+    const AVAILABLE: bool = true;
 
     fn write_sequence(&mut self, mut num_bits: usize, data: &[u8]) -> swd::Result<()> {
         self.context.swdio_to_output();
