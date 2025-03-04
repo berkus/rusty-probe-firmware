@@ -45,6 +45,15 @@ cargo install elf2uf2-rs flip-link defmt-print
 XTASK_SERIAL=/dev/ttyACM0 DEFMT_LOG=debug cargo rrb-usb app
 ```
 
+If you have [just](https://github.com/casey/just) installed you can replace all of the above with
+
+```console
+# Install elf2uf2-rs, flip-link, and defmt-print
+# Build the binary with the desired level of logging, and run
+# it using `xtask`
+just run SERIAL=/dev/ttyACM0
+```
+
 You can now repeat the above command, which will automatically restart and flash your Rusty Probe. Note that this does require that the block device is mounted each time.
 
 You may have to change `XTASK_SERIAL`, and on non-x86 linux platforms, you must update the runner configuration with the correct target (see [`.cargo/config.toml`](.cargo/config.toml#L15)).
