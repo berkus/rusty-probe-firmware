@@ -23,5 +23,4 @@ elf2uf2:
     @elf2uf2-rs --help > /dev/null || cargo install elf2uf2-rs
 
 flip-link:
-    # someday knurling folks will autorelease new flip-link with --help arg support
-    @which flip-link || cargo install flip-link
+    @flip-link --help 2> /dev/null || cargo install flip-link
