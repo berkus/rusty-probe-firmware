@@ -42,6 +42,6 @@ DEFMT_LOG = "trace"
 [alias]
 rrb = "run --release --bin"
 brb = "build --release --bin"
-rrb-usb = "run --release --no-default-features --features defmt-bbq,gnddetect,usb-serial-reboot --bin"
+rrb-usb = "run --release --no-default-features --features defmt-bbq,usb-serial-reboot --bin" #gnddetect,
 run-usb = "rrb-usb app"
 xtask = "run --release --manifest-path xtask/Cargo.toml"
