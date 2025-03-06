@@ -12,7 +12,7 @@ build-bin: install-flip-link
 # call it like `just r /dev/tty.usbmodem21203`
 # run binary with logging
 run-bin-defmt SERIAL='/dev/ttyACM0': install-flip-link install-defmt-print
-    XTASK_SERIAL={{ SERIAL }} XTASK_DEFMT_VERBOSE=true DEFMT_LOG=trace cargo rrb-usb app
+    XTASK_SERIAL={{ SERIAL }} XTASK_DEFMT_VERBOSE=true DEFMT_LOG=trace,dap_rs=trace cargo run-usb
 
 alias r := run-bin-defmt
 

@@ -24,7 +24,7 @@ replace_with = { version = "0.1.7", default-features = false, features = [
     "panic_abort",
 ] }
 usbd-serial = "0.2.0"
-dap-rs = { version = "0.2.0", features = ["defmt"], path = "../dap-rs" }
+dap-rs = { version = "0.2.0", path = "../dap-rs" } #features = ["defmt"],
 git-version = "0.3.5"
 pio-proc = "0.2.1"
 pio = "0.2.1"
