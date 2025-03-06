@@ -5,7 +5,13 @@ use crate::{
     },
     systick_delay::Delay,
 };
-use dap_rs::{dap::JtagState, jtag::Taps, swj::Dependencies, *};
+use dap_rs::{
+    dap::{JtagState, OperationState},
+    jtag::Taps,
+    swd::{APnDP, DPRegister},
+    swj::Dependencies,
+    *,
+};
 use defmt::trace;
 use embedded_hal::{
     delay::DelayNs,
@@ -454,6 +460,14 @@ impl jtag::Jtag<Context> for Jtag {
             let tdi = &data[..nbytes];
             data = &data[nbytes..];
 
+            defmt::trace!(
+                "JTAG Sequence: capture {}, tms {}, nbits {}, tdi {:?}",
+                capture,
+                tms,
+                nbits,
+                tdi
+            );
+
             // Set TMS for this transfer.
             if tms {
                 self.context.swdio_tms.set_high();
@@ -493,6 +507,7 @@ impl jtag::Jtag<Context> for Jtag {
     /// Send a sequence of TMS bits.
     fn tms_sequence(&mut self, data: &[u8], mut nbits: usize) {
         // self.bitbang_mode();
+        defmt::trace!("tms_sequence of {} bits", nbits);
 
         let mut last = self.context.delay.get_current();
         last = self.wait_half_period(last);
@@ -520,8 +535,8 @@ impl jtag::Jtag<Context> for Jtag {
         }
     }
 
-    fn taps(&mut self) -> &Taps {
-        &self.taps
+    fn taps(&mut self) -> &mut Taps {
+        &mut self.taps
     }
 }
 
@@ -615,6 +630,128 @@ impl Jtag {
     /// Compute required number of bytes to store a number of bits.
     fn bytes_for_bits(bits: usize) -> usize {
         (bits + 7) / 8
+    }
+}
+
+const IR_ABORT: u8 = 0b1000;
+const IR_DPACC: u8 = 0b1010;
+const IR_APACC: u8 = 0b1011;
+const IR_IDCODE: u8 = 0b1110;
+const IR_BYPASS: u8 = 0b1111;
+
+// @fixme: This is actually part of JTAG impl of ADI (Arm Debug Interface) not JTAG itself..
+// so perhaps impl ArmDebugInterface for Taps? or for Jtag?
+// For Swd this is implemented in rusty-probe-firmware for the Swd struct, so makes sense to impl it for Jtag struct there!
+impl adi::ArmDebugInterface for Jtag {
+    // this gives read_dp, write_dp, read_ap; no write_ap
+    //==============================================
+    // Public interface - read and write AP/DP regs
+    //==============================================
+
+    // ADIv5.2 B3.4.3
+    // ABORT: IR=ABORT, DR=35bit ABORT REG
+    // DPACC: IR=DPACC, DR=35bit DPACC REG, ACK+value
+    // APACC: IR=APACC, DR=35bit APACC REG - selects AP via DP SELECT register
+
+    fn read_inner(&mut self, apndp: APnDP, reg: DPRegister) -> adi::Result<u32> {
+        defmt::debug!("read_inner {} {}", apndp, reg);
+        self.write_ir(if apndp == APnDP::DP {
+            IR_DPACC
+        } else {
+            IR_APACC
+        });
+        let value: u64 = 0 << 3 | (reg as u64) << 1 | 0u64;
+        self.write_dr(value, 35);
+        // self.read_dr()
+        Ok(0)
+    }
+
+    fn write_inner(&mut self, apndp: APnDP, reg: DPRegister, data: u32) -> adi::Result<()> {
+        defmt::debug!("write_inner {} {} <- {}", apndp, reg, data);
+        self.write_ir(if apndp == APnDP::DP {
+            IR_DPACC
+        } else {
+            IR_APACC
+        });
+        // make 35 bit DR register: [0] = 0 (RnW), [1:2] = reg, [3:34] = data
+        let value: u64 = (data as u64) << 3 | (reg as u64) << 1 | 0;
+        self.write_dr(value, 35);
+        Ok(())
+    }
+}
+
+// DAP support (kinda)
+impl Jtag {
+    // State machine drives only TMS, so the corresponding trait method is Jtag::tms_sequence()
+    pub fn drive_state(&mut self, target: JtagState) {
+        loop {
+            let tms = self.sm.step_toward(target);
+            if tms == None {
+                return;
+            }
+            let tms = tms.unwrap();
+            self.sm.update(tms);
+
+            let data = if tms { [1u8; 1] } else { [0u8; 1] };
+
+            // feed tms to tms_sequence bit-by-bit
+            dap::Jtag::tms_sequence(self, &data, 1);
+        }
+    }
+
+    fn write_ir(&mut self, bits: u8) {
+        // always 4 bits for now
+        self.drive_state(JtagState::Ir(OperationState::Shift));
+
+        // shift in IR bits
+        // todo: set tms, disable capture
+        // let tms = self.sm.step_toward(JtagState::Ir(OperationState::Shift));//duh this is None
+        let seq = [0b0_0_000100u8, bits];
+        let mut rxbuf = [0u8; 32];
+        dap::Jtag::sequences(self, &seq, &mut rxbuf);
+
+        self.drive_state(JtagState::Ir(OperationState::Update));
+        self.drive_state(JtagState::Idle);
+    }
+
+    fn write_dr(&mut self, bits: u64, nbits: usize) {
+        // up to 35 bits
+        assert!(nbits < 36);
+
+        self.drive_state(JtagState::Dr(OperationState::Shift));
+
+        // shift in DR bits
+        let bytes = bits.to_le_bytes();
+        let seq = [
+            nbits as u8,
+            bytes[0],
+            bytes[1],
+            bytes[2],
+            bytes[3],
+            bytes[4],
+        ];
+        let mut rxbuf = [0u8; 32];
+        dap::Jtag::sequences(self, &seq, &mut rxbuf);
+
+        self.drive_state(JtagState::Dr(OperationState::Update));
+        self.drive_state(JtagState::Idle);
+    }
+
+    fn read_dr(&mut self, nbits: usize) -> u64 {
+        // up to 35 bits
+        assert!(nbits < 36);
+
+        self.drive_state(JtagState::Dr(OperationState::Capture));
+        self.drive_state(JtagState::Dr(OperationState::Shift));
+        let seq = [0b1_0_000000u8 | nbits as u8, 0, 0, 0, 0, 0];
+        let mut rxbuf = [0u8; 8];
+        dap::Jtag::sequences(self, &seq, &mut rxbuf);
+
+        let dr = u64::from_le_bytes(rxbuf);
+
+        // shift out DR bits;
+        self.drive_state(JtagState::Idle);
+        dr
     }
 }
 
