@@ -290,7 +290,7 @@ impl swj::Dependencies<Swd, Jtag> for Context {
 
 pub struct Jtag {
     context: Context,
-    // taps: crate::taps::Taps,
+    taps: dap::jtag::Taps,
     // pins: &'ctx JtagPins,
 }
 
@@ -326,7 +326,7 @@ impl From<Context> for Jtag {
 
         Self {
             context: value,
-            // taps: crate::taps::Taps::default(),
+            taps: dap::jtag::Taps::default(),
         }
     }
 }
@@ -477,9 +477,12 @@ impl jtag::Jtag<Context> for Jtag {
 
     type Error = ();
 
+    // @todo MAKE ME
     fn configure_taps(&mut self, req: &[u8]) -> Result<(), Self::Error> {
         let chain_count = req[0];
-        // self.taps.setup(chain_count.into(), &req[1..]);
+        defmt::trace!("JTAG configure_taps {}", chain_count);
+        // with one 4 bit IR we don't really need to set up anything? lets skip for now
+        self.taps.setup(chain_count.into(), &req[1..]);
         Ok(())
     }
 }
