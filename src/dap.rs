@@ -292,6 +292,8 @@ pub struct Jtag {
     context: Context,
     taps: dap::jtag::Taps,
     // pins: &'ctx JtagPins,
+    // jtag state: we control state ourselves and the probe-rs knows to restart the SM after DAP_Transfer cmd...
+    sm: JtagState, // for switching read-write modes
 }
 
 impl From<Jtag> for Context {
@@ -327,6 +329,7 @@ impl From<Context> for Jtag {
         Self {
             context: value,
             taps: dap::jtag::Taps::default(),
+            sm: dap::jtag::JtagState::default(),
         }
     }
 }
@@ -451,6 +454,8 @@ impl jtag::Jtag<Context> for Jtag {
             let tdi = &data[..nbytes];
             data = &data[nbytes..];
 
+            self.sm.update(tms); // @todo should update on each step in transfer_rw/_wo?
+
             // Set TMS for this transfer.
             if tms != 0 {
                 self.context.swdio_tms.set_high();
@@ -483,22 +488,12 @@ impl jtag::Jtag<Context> for Jtag {
         defmt::trace!("JTAG configure_taps {}", chain_count);
         // with one 4 bit IR we don't really need to set up anything? lets skip for now
         self.taps.setup(chain_count.into(), &req[1..]);
+        // drive_state(self, ..., Reset);
         Ok(())
-    }
-}
-
-impl Jtag {
-    #[inline(always)]
-    fn wait_half_period(&self, last: u32) -> u32 {
-        self.context
-            .delay
-            .delay_ticks_from_last(self.context.half_period_ticks, last)
     }
 
     /// Send a sequence of TMS bits.
-    #[allow(dead_code)]
-    #[inline(never)]
-    fn tms_sequence(&mut self, data: &[u8], mut bits: usize) {
+    fn tms_sequence(&mut self, data: &[u8], mut nbits: usize) {
         // self.bitbang_mode();
 
         let mut last = self.context.delay.get_current();
@@ -506,12 +501,14 @@ impl Jtag {
 
         for byte in data {
             let mut byte = *byte;
-            let frame_bits = core::cmp::min(bits, 8);
+            let frame_bits = core::cmp::min(nbits, 8);
             for _ in 0..frame_bits {
                 let bit = byte & 1;
                 byte >>= 1;
+                let tms = bit != 0;
 
-                if bit != 0 {
+                self.sm.update(tms);
+                if tms {
                     self.context.swdio_tms.set_high();
                 } else {
                     self.context.swdio_tms.set_low();
@@ -521,8 +518,21 @@ impl Jtag {
                 self.context.swclk_tck.set_high();
                 last = self.wait_half_period(last);
             }
-            bits -= frame_bits;
+            nbits -= frame_bits;
         }
+    }
+
+    fn taps(&mut self) -> &Taps {
+        &self.taps
+    }
+}
+
+impl Jtag {
+    #[inline(always)]
+    fn wait_half_period(&self, last: u32) -> u32 {
+        self.context
+            .delay
+            .delay_ticks_from_last(self.context.half_period_ticks, last)
     }
 
     /// Write-only JTAG transfer without capturing TDO.
@@ -545,8 +555,10 @@ impl Jtag {
                     return;
                 }
 
+                let tdi = byte & (1 << bit_idx) != 0;
+
                 // Set TDI and toggle TCK.
-                if byte & (1 << bit_idx) != 0 {
+                if tdi {
                     let _ = self.context.tdi.set_high();
                 } else {
                     let _ = self.context.tdi.set_low();
@@ -569,7 +581,7 @@ impl Jtag {
 
         let mut last = self.context.delay.get_current();
 
-        for (byte_idx, (tdi, tdo)) in tdi.iter().zip(tdo.iter_mut()).enumerate() {
+        for (byte_idx, (tdi_byte, tdo)) in tdi.iter().zip(tdo.iter_mut()).enumerate() {
             *tdo = 0;
             for bit_idx in 0..8 {
                 // Stop after transmitting `n` bits.
@@ -577,10 +589,12 @@ impl Jtag {
                     return;
                 }
 
+                let tdi = tdi_byte & (1 << bit_idx) != 0;
+
                 // We set TDI half a period before the clock rising edge where it is sampled
                 // by the target, and we sample TDO immediately before the clock falling edge
                 // where it is updated by the target.
-                if tdi & (1 << bit_idx) != 0 {
+                if tdi {
                     let _ = self.context.tdi.set_high();
                 } else {
                     let _ = self.context.tdi.set_low();
