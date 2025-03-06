@@ -4,6 +4,7 @@ use std::{
     time::{Duration, Instant},
 };
 
+use anyhow::anyhow;
 use clap::Parser;
 use serialport::SerialPort;
 use xshell::{cmd, Shell};
@@ -190,7 +191,7 @@ fn main() -> anyhow::Result<()> {
 
     let serial_port = || {
         serialport::new(&opts.serial_port, 115200)
-            .timeout(std::time::Duration::from_millis(100))
+            .timeout(std::time::Duration::from_millis(1000))
             .open()
             .map_err(|e| anyhow::anyhow!(format!("Failed to open serial port: {e}")))
     };
@@ -241,18 +242,27 @@ fn main() -> anyhow::Result<()> {
             let defmt_print = if defmt_print { Some(elf) } else { None };
 
             let start = Instant::now();
+            let mut err = None;
+
             loop {
                 if start.elapsed() > Duration::from_secs(5) {
-                    return Err(anyhow::anyhow!("Acquiring log serial port timed out"));
+                    return Err(anyhow::anyhow!(
+                        "Acquiring log serial port {} timed out: {}",
+                        opts.serial_port,
+                        err.unwrap_or_else(|| anyhow!("Unknown error"))
+                    ));
                 }
 
-                if let Ok(mut port) = serial_port() {
+                let res = serial_port();
+                if let Ok(mut port) = res {
                     // Sleep a little while so that some startup data can be accumulated
                     // in the serial port.
                     //
                     // Not entirely certain that this really helps, but ¯\_(ツ)_/¯
                     std::thread::sleep(Duration::from_millis(200));
                     break read_log(&mut port, defmt_print.map(|p| (p, verbose)));
+                } else if let Err(e) = res {
+                    err = Some(e);
                 }
             }
         }
