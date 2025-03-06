@@ -5,7 +5,7 @@ use crate::{
     },
     systick_delay::Delay,
 };
-use dap_rs::{swj::Dependencies, *};
+use dap_rs::{dap::JtagState, jtag::Taps, swj::Dependencies, *};
 use defmt::trace;
 use embedded_hal::{
     delay::DelayNs,
@@ -290,7 +290,7 @@ impl swj::Dependencies<Swd, Jtag> for Context {
 
 pub struct Jtag {
     context: Context,
-    taps: dap::jtag::Taps,
+    taps: Taps,
     // pins: &'ctx JtagPins,
     // jtag state: we control state ourselves and the probe-rs knows to restart the SM after DAP_Transfer cmd...
     sm: JtagState, // for switching read-write modes
@@ -328,8 +328,8 @@ impl From<Context> for Jtag {
 
         Self {
             context: value,
-            taps: dap::jtag::Taps::default(),
-            sm: dap::jtag::JtagState::default(),
+            taps: Taps::default(),
+            sm: JtagState::default(),
         }
     }
 }
@@ -358,7 +358,7 @@ impl jtag::Jtag<Context> for Jtag {
     ///
     /// Returns the number of bytes of rxbuf which were written to.
     fn sequences(&mut self, data: &[u8], rxbuf: &mut [u8]) -> u32 {
-        trace!("JTAG sequences");
+        defmt::trace!("JTAG sequences");
         // Read request header containing number of sequences.
         if data.is_empty() {
             return 0;
@@ -441,8 +441,8 @@ impl jtag::Jtag<Context> for Jtag {
             }
             let header = data[0];
             data = &data[1..];
-            let capture = header & 0b1000_0000;
-            let tms = header & 0b0100_0000;
+            let capture = (header & 0b1000_0000) != 0;
+            let tms = (header & 0b0100_0000) != 0;
             let nbits = header & 0b0011_1111;
             let nbits = if nbits == 0 { 64 } else { nbits as usize };
             let nbytes = Self::bytes_for_bits(nbits);
@@ -454,21 +454,19 @@ impl jtag::Jtag<Context> for Jtag {
             let tdi = &data[..nbytes];
             data = &data[nbytes..];
 
-            self.sm.update(tms); // @todo should update on each step in transfer_rw/_wo?
-
             // Set TMS for this transfer.
-            if tms != 0 {
+            if tms {
                 self.context.swdio_tms.set_high();
             } else {
                 self.context.swdio_tms.set_low();
             }
 
             // Run one transfer, either read-write or write-only.
-            if capture != 0 {
-                self.transfer_rw(nbits, tdi, &mut rxbuf[rxidx..]);
+            if capture {
+                self.transfer_rw(nbits, tdi, &mut rxbuf[rxidx..], tms);
                 rxidx += nbytes;
             } else {
-                self.transfer_wo(nbits, tdi);
+                self.transfer_wo(nbits, tdi, tms);
             }
         }
 
@@ -545,7 +543,7 @@ impl Jtag {
     /// 01010101 10101010 01010101 10101010 01010101 10101010 01010101 10101010
     ///
     #[inline(never)]
-    fn transfer_wo(&mut self, n: usize, tdi: &[u8]) {
+    fn transfer_wo(&mut self, n: usize, tdi: &[u8], tms: bool) {
         let mut last = self.context.delay.get_current();
 
         for (byte_idx, byte) in tdi.iter().enumerate() {
@@ -554,6 +552,8 @@ impl Jtag {
                 if byte_idx * 8 + bit_idx == n {
                     return;
                 }
+
+                self.sm.update(tms);
 
                 let tdi = byte & (1 << bit_idx) != 0;
 
@@ -576,7 +576,7 @@ impl Jtag {
     /// Writes `n` bits from successive bytes of `tdi`, LSbit first.
     /// Captures `n` bits from TDO and writes into successive bytes of `tdo`, LSbit first.
     #[inline(never)]
-    fn transfer_rw(&mut self, n: usize, tdi: &[u8], tdo: &mut [u8]) {
+    fn transfer_rw(&mut self, n: usize, tdi: &[u8], tdo: &mut [u8], tms: bool) {
         use embedded_hal::digital::InputPin;
 
         let mut last = self.context.delay.get_current();
@@ -588,6 +588,8 @@ impl Jtag {
                 if byte_idx * 8 + bit_idx == n {
                     return;
                 }
+
+                self.sm.update(tms);
 
                 let tdi = tdi_byte & (1 << bit_idx) != 0;
 
