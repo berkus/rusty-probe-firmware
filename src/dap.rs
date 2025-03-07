@@ -654,6 +654,10 @@ impl adi::ArmDebugInterface for Jtag {
     // APACC: IR=APACC, DR=35bit APACC REG - selects AP via DP SELECT register
 
     // todo: as seen above the addressing over JTAG might work differently from SWD? compare notes and see
+    // ABORT is written through a separate IR_ABORT
+    // IR_DPACC only accesses CTRL/STAT and AP SELECT regs
+    // IR_APACC does who knows what? @todo (MEM-AP, JTAG-AP ?)
+    // MEM-AP registers are addressed with a combo of address, APBANKSEL and offset.
 
     fn read_inner(&mut self, apndp: APnDP, reg: DPRegister) -> adi::Result<u32> {
         defmt::debug!("read_inner {} {}", apndp, reg);
