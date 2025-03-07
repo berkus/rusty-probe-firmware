@@ -8,7 +8,7 @@ use crate::{
 use dap_rs::{
     dap::{JtagState, OperationState},
     jtag::Taps,
-    swd::{APnDP, DPRegister},
+    swd::{APnDP, DPRegister, Error},
     swj::Dependencies,
     *,
 };
@@ -653,6 +653,8 @@ impl adi::ArmDebugInterface for Jtag {
     // DPACC: IR=DPACC, DR=35bit DPACC REG, ACK+value
     // APACC: IR=APACC, DR=35bit APACC REG - selects AP via DP SELECT register
 
+    // todo: as seen above the addressing over JTAG might work differently from SWD? compare notes and see
+
     fn read_inner(&mut self, apndp: APnDP, reg: DPRegister) -> adi::Result<u32> {
         defmt::debug!("read_inner {} {}", apndp, reg);
         self.write_ir(if apndp == APnDP::DP {
@@ -660,10 +662,17 @@ impl adi::ArmDebugInterface for Jtag {
         } else {
             IR_APACC
         });
-        let value: u64 = 0 << 3 | (reg as u64) << 1 | 0u64;
+        let value: u64 = 0 << 3 | (reg as u64) << 1 | 1; // RnW = 1
         self.write_dr(value, 35);
-        // self.read_dr()
-        Ok(0)
+        let v = self.read_dr(35);
+        let ack = v & 0b111;
+        if ack == 0b001 {
+            return Err(Error::AckWait);
+        }
+        if ack == 0b010 {
+            return Err(Error::AckFault); //???
+        }
+        Ok((v >> 3) as u32)
     }
 
     fn write_inner(&mut self, apndp: APnDP, reg: DPRegister, data: u32) -> adi::Result<()> {
@@ -674,7 +683,7 @@ impl adi::ArmDebugInterface for Jtag {
             IR_APACC
         });
         // make 35 bit DR register: [0] = 0 (RnW), [1:2] = reg, [3:34] = data
-        let value: u64 = (data as u64) << 3 | (reg as u64) << 1 | 0;
+        let value: u64 = (data as u64) << 3 | (reg as u64) << 1 | 0; // todo: this format is ONLY for DPACC!
         self.write_dr(value, 35);
         Ok(())
     }
@@ -684,37 +693,33 @@ impl adi::ArmDebugInterface for Jtag {
 impl Jtag {
     // State machine drives only TMS, so the corresponding trait method is Jtag::tms_sequence()
     pub fn drive_state(&mut self, target: JtagState) {
-        loop {
-            let tms = self.sm.step_toward(target);
-            if tms == None {
-                return;
-            }
-            let tms = tms.unwrap();
-            self.sm.update(tms);
-
-            let data = if tms { [1u8; 1] } else { [0u8; 1] };
-
+        defmt::trace!("Drive SM state to {}", target);
+        use dap::Jtag;
+        while let Some(tms) = self.sm.step_toward(target) {
+            let data = [if tms { 1u8 } else { 0u8 }; 1];
             // feed tms to tms_sequence bit-by-bit
-            dap::Jtag::tms_sequence(self, &data, 1);
+            self.tms_sequence(&data, 1); // tms_sequence updates the SM!
         }
     }
 
     fn write_ir(&mut self, bits: u8) {
+        use dap::Jtag;
         // always 4 bits for now
         self.drive_state(JtagState::Ir(OperationState::Shift));
 
         // shift in IR bits
         // todo: set tms, disable capture
         // let tms = self.sm.step_toward(JtagState::Ir(OperationState::Shift));//duh this is None
-        let seq = [0b0_0_000100u8, bits];
-        let mut rxbuf = [0u8; 32];
-        dap::Jtag::sequences(self, &seq, &mut rxbuf);
+        let seq = [1, 0b0_0_000100u8, bits];
+        let mut rxbuf = [0u8; 8];
+        self.sequences(&seq, &mut rxbuf);
 
         self.drive_state(JtagState::Ir(OperationState::Update));
         self.drive_state(JtagState::Idle);
     }
 
     fn write_dr(&mut self, bits: u64, nbits: usize) {
+        use dap::Jtag;
         // up to 35 bits
         assert!(nbits < 36);
 
@@ -723,34 +728,37 @@ impl Jtag {
         // shift in DR bits
         let bytes = bits.to_le_bytes();
         let seq = [
-            nbits as u8,
+            1,
+            0b0_0_000000 | nbits as u8,
             bytes[0],
             bytes[1],
             bytes[2],
             bytes[3],
             bytes[4],
         ];
-        let mut rxbuf = [0u8; 32];
-        dap::Jtag::sequences(self, &seq, &mut rxbuf);
+        let mut rxbuf = [0u8; 8];
+        self.sequences(&seq, &mut rxbuf);
 
         self.drive_state(JtagState::Dr(OperationState::Update));
         self.drive_state(JtagState::Idle);
     }
 
     fn read_dr(&mut self, nbits: usize) -> u64 {
+        use dap::Jtag;
         // up to 35 bits
         assert!(nbits < 36);
 
         self.drive_state(JtagState::Dr(OperationState::Capture));
         self.drive_state(JtagState::Dr(OperationState::Shift));
-        let seq = [0b1_0_000000u8 | nbits as u8, 0, 0, 0, 0, 0];
+
+        let seq = [1, 0b1_0_000000u8 | nbits as u8, 0, 0, 0, 0, 0];
         let mut rxbuf = [0u8; 8];
-        dap::Jtag::sequences(self, &seq, &mut rxbuf);
+        self.sequences(&seq, &mut rxbuf);
 
         let dr = u64::from_le_bytes(rxbuf);
 
-        // shift out DR bits;
         self.drive_state(JtagState::Idle);
+
         dr
     }
 }
